@@ -1,0 +1,60 @@
+import { useEffect } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAppStore } from '../store/appStore'
+
+export const useAuth = () => {
+  const { user, setUser, setUserRole, clearUser } = useAppStore()
+
+  useEffect(() => {
+    // Verificar sessão ativa
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user)
+        fetchUserRole(session.user.id)
+      }
+    })
+
+    // Listener de mudanças de auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session?.user) {
+          setUser(session.user)
+          fetchUserRole(session.user.id)
+        } else {
+          clearUser()
+        }
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const fetchUserRole = async (userId) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single()
+    if (data?.role) setUserRole(data.role)
+  }
+
+  const signIn = async (email, password) => {
+    return supabase.auth.signInWithPassword({ email, password })
+  }
+
+  const signUp = async (email, password, userData) => {
+    const { data, error } = await supabase.auth.signUp({ email, password })
+    if (data.user && !error) {
+      await supabase.from('profiles').insert({
+        id: data.user.id,
+        email,
+        ...userData
+      })
+    }
+    return { data, error }
+  }
+
+  const signOut = () => supabase.auth.signOut()
+
+  return { user, signIn, signUp, signOut }
+}
