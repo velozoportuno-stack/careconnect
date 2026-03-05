@@ -17,7 +17,6 @@ export const useTracking = (booking) => {
   const [hasCheckedOut, setHasCheckedOut] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const channelRef = useRef(null)
 
   useEffect(() => {
     if (!booking?.id || !booking?.provider_id) {
@@ -124,8 +123,6 @@ export const useTracking = (booking) => {
         }
       )
       .subscribe()
-
-    channelRef.current = channel
 
     return () => {
       cancelled = true

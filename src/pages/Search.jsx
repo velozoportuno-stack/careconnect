@@ -1,16 +1,32 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Search as SearchIcon, Star, MapPin, Filter } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { formatCurrency, formatRating } from '../utils/formatters'
 
-const CATEGORIES = ['Todos', 'cuidador', 'enfermagem', 'limpeza', 'fisioterapia']
+// Mapeamento: valor do filtro (= role na DB) → label em português
+const CATEGORIES = [
+  { value: 'Todos', label: 'Todos' },
+  { value: 'caregiver', label: 'Cuidador' },
+  { value: 'nurse', label: 'Enfermagem' },
+  { value: 'cleaner', label: 'Limpeza' },
+]
+
+const ROLE_LABEL = {
+  caregiver: 'Cuidador',
+  nurse: 'Enfermeiro(a)',
+  cleaner: 'Assistente de Limpeza',
+}
 
 export default function Search() {
+  const [searchParams] = useSearchParams()
   const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('Todos')
+  // Inicializa o filtro a partir do URL param enviado por Home.jsx
+  const [category, setCategory] = useState(
+    () => searchParams.get('category') || 'Todos'
+  )
 
   useEffect(() => {
     fetchProviders()
@@ -26,6 +42,7 @@ export default function Search() {
       .eq('is_active', true)
 
     if (category !== 'Todos') {
+      // `category` agora é o valor real do role na DB (caregiver, nurse, cleaner)
       q = q.eq('role', category)
     }
 
@@ -39,8 +56,6 @@ export default function Search() {
     p.full_name?.toLowerCase().includes(query.toLowerCase()) ||
     p.city?.toLowerCase().includes(query.toLowerCase())
   )
-
-  const roleLabel = { caregiver: 'Cuidador', nurse: 'Enfermeiro', cleaner: 'Limpeza', fisioterapia: 'Fisioterapeuta' }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -69,15 +84,15 @@ export default function Search() {
             <div className="flex gap-2 flex-wrap">
               {CATEGORIES.map((cat) => (
                 <button
-                  key={cat}
-                  onClick={() => setCategory(cat)}
+                  key={cat.value}
+                  onClick={() => setCategory(cat.value)}
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    category === cat
+                    category === cat.value
                       ? 'bg-primary-600 text-white'
                       : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {cat}
+                  {cat.label}
                 </button>
               ))}
             </div>
@@ -105,7 +120,7 @@ export default function Search() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 truncate">{p.full_name}</h3>
-                    <p className="text-sm text-primary-600 font-medium">{roleLabel[p.role] || p.role}</p>
+                    <p className="text-sm text-primary-600 font-medium">{ROLE_LABEL[p.role] || p.role}</p>
                     <div className="flex items-center gap-1 mt-1">
                       <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
                       <span className="text-sm font-medium">{formatRating(p.rating)}</span>

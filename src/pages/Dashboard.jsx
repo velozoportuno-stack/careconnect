@@ -16,6 +16,8 @@ const STATUS_LABELS = {
   cancelled: { label: 'Cancelado', color: 'bg-red-100 text-red-700' },
 }
 
+const TRACKING_STATUSES = new Set(['confirmed', 'in_progress', 'completed'])
+
 export default function Dashboard() {
   const { user, userRole, notifications } = useAppStore()
   const { signOut } = useAuth()
@@ -26,8 +28,6 @@ export default function Dashboard() {
   useEffect(() => {
     fetchBookings()
   }, [])
-
-  const TRACKING_STATUSES = new Set(['confirmed', 'in_progress', 'completed'])
 
   const toggleTracking = (bookingId) => {
     setExpandedBookingId((prev) => (prev === bookingId ? null : bookingId))

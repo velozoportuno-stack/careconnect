@@ -43,13 +43,19 @@ export const useAuth = () => {
   }
 
   const signUp = async (email, password, userData) => {
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: userData.full_name } },
+    })
     if (data.user && !error) {
-      await supabase.from('profiles').insert({
-        id: data.user.id,
-        email,
-        ...userData
-      })
+      // The handle_new_user trigger already inserts the profile row on
+      // auth.users INSERT. Use upsert so extra fields (role, city, …)
+      // are set without a duplicate-key error if the trigger ran first.
+      await supabase.from('profiles').upsert(
+        { id: data.user.id, email, ...userData },
+        { onConflict: 'id' }
+      )
     }
     return { data, error }
   }

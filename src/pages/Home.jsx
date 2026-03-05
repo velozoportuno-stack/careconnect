@@ -24,11 +24,12 @@ const features = [
   },
 ]
 
+// `role` deve corresponder ao valor real em profiles.role (usado como query param em /search)
 const categories = [
-  { label: 'Cuidador de Idosos', icon: '👴', color: 'bg-blue-50 text-blue-700' },
-  { label: 'Enfermagem', icon: '🏥', color: 'bg-green-50 text-green-700' },
-  { label: 'Limpeza', icon: '🧹', color: 'bg-yellow-50 text-yellow-700' },
-  { label: 'Fisioterapia', icon: '💪', color: 'bg-purple-50 text-purple-700' },
+  { label: 'Cuidador de Idosos', icon: '👴', color: 'bg-blue-50 text-blue-700', role: 'caregiver' },
+  { label: 'Enfermagem', icon: '🏥', color: 'bg-green-50 text-green-700', role: 'nurse' },
+  { label: 'Limpeza', icon: '🧹', color: 'bg-yellow-50 text-yellow-700', role: 'cleaner' },
+  { label: 'Todos', icon: '🔍', color: 'bg-purple-50 text-purple-700', role: 'Todos' },
 ]
 
 export default function Home() {
@@ -73,7 +74,7 @@ export default function Home() {
           <h2 className="text-2xl font-bold text-center mb-10">Categorias de Serviço</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {categories.map((cat) => (
-              <Link key={cat.label} to={`/search?category=${cat.label}`}
+              <Link key={cat.label} to={`/search?category=${cat.role}`}
                 className={`flex flex-col items-center p-6 rounded-xl ${cat.color} hover:opacity-90 transition-opacity cursor-pointer`}>
                 <span className="text-4xl mb-3">{cat.icon}</span>
                 <span className="font-semibold text-center">{cat.label}</span>

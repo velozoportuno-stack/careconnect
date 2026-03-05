@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Users, Calendar, Shield, BarChart2 } from 'lucide-react'
+import { Users, Calendar, Shield } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 
@@ -11,6 +11,9 @@ export default function Admin() {
   const [recentUsers, setRecentUsers] = useState([])
 
   useEffect(() => {
+    // userRole começa como null enquanto o perfil é carregado do Supabase.
+    // Aguardar até que seja determinado antes de redirecionar.
+    if (userRole === null) return
     if (!user || userRole !== 'admin') {
       navigate('/')
       return
@@ -27,6 +30,15 @@ export default function Admin() {
     ])
     setStats({ users: users || 0, bookings: bookings || 0, providers: providers || 0 })
     setRecentUsers(recent || [])
+  }
+
+  // Mostrar loading enquanto a sessão/role ainda está a ser carregada
+  if (!user || userRole === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-400">
+        A carregar...
+      </div>
+    )
   }
 
   return (

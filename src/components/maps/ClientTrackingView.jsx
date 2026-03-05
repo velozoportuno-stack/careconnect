@@ -5,22 +5,11 @@ import { formatDate, formatTime } from '../../utils/formatters'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Constrói um Date a partir das strings de data e hora da reserva.
- * Trata corretamente fusos horários locais.
- */
 function buildScheduledDate(date, time) {
   if (!date || !time) return null
-  // "2026-03-10" + "14:00:00" → Date local
   return new Date(`${date}T${time}`)
 }
 
-/** Calcula o tempo restante em segundos entre agora e um Date alvo. */
-function secondsUntil(target) {
-  return Math.floor((target.getTime() - Date.now()) / 1000)
-}
-
-/** Formata segundos em "HH:MM:SS" ou "MM:SS" conforme a magnitude. */
 function formatCountdown(totalSeconds) {
   if (totalSeconds <= 0) return '00:00'
   const h = Math.floor(totalSeconds / 3600)
@@ -33,10 +22,9 @@ function formatCountdown(totalSeconds) {
 
 // ─── Sub-componentes ───────────────────────────────────────────────────────────
 
-/** Ecrã de contagem decrescente — mostrado antes dos 30 min. */
 function CountdownScreen({ booking, secondsRemaining }) {
   const display = formatCountdown(secondsRemaining)
-  const [h, m, s] = display.includes(':') ? display.split(':') : ['00', display.split(':')[0], display.split(':')[1]]
+  const parts = display.split(':')
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 py-10 px-4 text-center">
@@ -58,19 +46,19 @@ function CountdownScreen({ booking, secondsRemaining }) {
 
       {/* Contador */}
       <div className="flex items-center gap-2 bg-primary-50 border border-primary-100 rounded-2xl px-6 py-4">
-        {display.split(':').length === 3 ? (
+        {parts.length === 3 ? (
           <>
-            <TimeUnit value={display.split(':')[0]} label="horas" />
+            <TimeUnit value={parts[0]} label="horas" />
             <Colon />
-            <TimeUnit value={display.split(':')[1]} label="min" />
+            <TimeUnit value={parts[1]} label="min" />
             <Colon />
-            <TimeUnit value={display.split(':')[2]} label="seg" />
+            <TimeUnit value={parts[2]} label="seg" />
           </>
         ) : (
           <>
-            <TimeUnit value={display.split(':')[0]} label="min" />
+            <TimeUnit value={parts[0]} label="min" />
             <Colon />
-            <TimeUnit value={display.split(':')[1]} label="seg" />
+            <TimeUnit value={parts[1]} label="seg" />
           </>
         )}
       </div>
@@ -95,7 +83,6 @@ function Colon() {
   return <span className="text-2xl font-bold text-primary-400 pb-4">:</span>
 }
 
-/** Ecrã de serviço concluído — mostrado após checkout. */
 function CompletedScreen() {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-10 px-4 text-center">
@@ -110,21 +97,17 @@ function CompletedScreen() {
   )
 }
 
-/** Mapa via iframe OpenStreetMap — sem dependências npm. */
-function MapView({ location, booking }) {
+function MapView({ location }) {
   const { lat, lng, updated_at } = location
 
   const iframeSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.01},${lat - 0.01},${lng + 0.01},${lat + 0.01}&layer=mapnik&marker=${lat},${lng}`
-
   const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`
-
   const lastUpdate = updated_at
     ? new Date(updated_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Indicador de estado */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
           <span className="relative flex h-2.5 w-2.5">
@@ -138,7 +121,6 @@ function MapView({ location, booking }) {
         )}
       </div>
 
-      {/* Mapa */}
       <div className="relative rounded-xl overflow-hidden border border-gray-200 shadow-sm" style={{ height: 320 }}>
         <iframe
           title="Localização do profissional"
@@ -151,7 +133,6 @@ function MapView({ location, booking }) {
         />
       </div>
 
-      {/* Coordenadas + link externo */}
       <div className="flex items-center justify-between text-xs text-gray-400 px-1">
         <div className="flex items-center gap-1">
           <Navigation className="w-3 h-3" />
@@ -171,8 +152,7 @@ function MapView({ location, booking }) {
   )
 }
 
-/** Ecrã de espera quando o profissional ainda não partilhou localização. */
-function WaitingForLocation({ booking }) {
+function WaitingForLocation() {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-8 px-4 text-center">
       <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
@@ -199,24 +179,9 @@ function WaitingForLocation({ booking }) {
 
 // ─── Componente principal ──────────────────────────────────────────────────────
 
-/**
- * ClientTrackingView
- *
- * Mostra ao cliente a localização em tempo real do profissional,
- * aplicando a seguinte lógica de acesso:
- *
- * 1. Serviço concluído (checkout) → mensagem "Serviço concluído"
- * 2. Antes de 30 min do agendamento → contador decrescente
- * 3. Dentro da janela (≥ -30 min) e sem checkout → mapa em tempo real
- *    3a. Profissional ainda não partilhou → mensagem de espera
- *    3b. Localização disponível → mapa
- *
- * @param {{ booking: object, className?: string }} props
- */
 export default function ClientTrackingView({ booking, className = '' }) {
   const { providerLocation, hasCheckedOut, loading } = useTracking(booking)
 
-  // Tempo atual — atualizado a cada segundo
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -224,18 +189,12 @@ export default function ClientTrackingView({ booking, className = '' }) {
     return () => clearInterval(id)
   }, [])
 
-  // Calcular janelas de tempo
-  const { scheduledDateTime, accessTime, secondsUntilAccess } = useMemo(() => {
+  const secondsUntilAccess = useMemo(() => {
     const scheduled = buildScheduledDate(booking?.scheduled_date, booking?.scheduled_time)
-    if (!scheduled) return { scheduledDateTime: null, accessTime: null, secondsUntilAccess: 0 }
-
+    if (!scheduled) return 0
     const access = new Date(scheduled.getTime() - 30 * 60 * 1000)
-    const remaining = Math.max(0, Math.floor((access.getTime() - now) / 1000))
-
-    return { scheduledDateTime: scheduled, accessTime: access, secondsUntilAccess: remaining }
+    return Math.max(0, Math.floor((access.getTime() - now) / 1000))
   }, [booking?.scheduled_date, booking?.scheduled_time, now])
-
-  // ── Renderização ──────────────────────────────────────────────────────────
 
   return (
     <div className={`card ${className}`}>
@@ -249,17 +208,13 @@ export default function ClientTrackingView({ booking, className = '' }) {
           A carregar...
         </div>
       ) : hasCheckedOut ? (
-        // Estado 1: serviço concluído
         <CompletedScreen />
       ) : secondsUntilAccess > 0 ? (
-        // Estado 2: antes da janela de 30 min
         <CountdownScreen booking={booking} secondsRemaining={secondsUntilAccess} />
       ) : providerLocation ? (
-        // Estado 3b: localização disponível
-        <MapView location={providerLocation} booking={booking} />
+        <MapView location={providerLocation} />
       ) : (
-        // Estado 3a: dentro da janela mas sem localização ainda
-        <WaitingForLocation booking={booking} />
+        <WaitingForLocation />
       )}
     </div>
   )

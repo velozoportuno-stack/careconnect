@@ -5,7 +5,7 @@ import { useAppStore } from '../store/appStore'
 export const useBookings = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const { user, setBookings } = useAppStore()
+  const { user, setBookings, bookings } = useAppStore()
 
   const fetchBookings = async () => {
     if (!user) return
@@ -59,5 +59,5 @@ export const useBookings = () => {
     return { data, error }
   }
 
-  return { loading, error, fetchBookings, createBooking, updateBookingStatus }
+  return { loading, error, bookings, fetchBookings, createBooking, updateBookingStatus }
 }
