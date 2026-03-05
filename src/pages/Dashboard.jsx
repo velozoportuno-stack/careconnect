@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Calendar, Star, Bell, LogOut, Search, User } from 'lucide-react'
+import { Calendar, Star, Bell, LogOut, Search, User, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
 import { useBookings } from '../hooks/useBookings'
 import { formatDate, formatCurrency } from '../utils/formatters'
+import ClientTrackingView from '../components/maps/ClientTrackingView'
+import ProviderLocationShare from '../components/maps/ProviderLocationShare'
 
 const STATUS_LABELS = {
   pending: { label: 'Pendente', color: 'bg-yellow-100 text-yellow-700' },
@@ -19,10 +21,17 @@ export default function Dashboard() {
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
+  const [expandedBookingId, setExpandedBookingId] = useState(null)
 
   useEffect(() => {
     fetchBookings()
   }, [])
+
+  const TRACKING_STATUSES = new Set(['confirmed', 'in_progress', 'completed'])
+
+  const toggleTracking = (bookingId) => {
+    setExpandedBookingId((prev) => (prev === bookingId ? null : bookingId))
+  }
 
   const handleSignOut = async () => {
     await signOut()
@@ -116,23 +125,46 @@ export default function Dashboard() {
               </Link>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {bookings.map((booking) => {
                 const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
+                const hasTracking = TRACKING_STATUSES.has(booking.status)
+                const isExpanded = expandedBookingId === booking.id
+
                 return (
-                  <div key={booking.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50">
-                    <div>
-                      <p className="font-medium">
-                        {booking.service?.title || 'Serviço'}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {formatDate(booking.scheduled_date)} às {booking.scheduled_time?.slice(0, 5)}
-                      </p>
+                  <div key={booking.id} className="border border-gray-100 rounded-lg overflow-hidden">
+                    {/* Linha da reserva */}
+                    <div
+                      className={`flex items-center justify-between p-4 ${hasTracking ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}
+                      onClick={() => hasTracking && toggleTracking(booking.id)}
+                    >
+                      <div>
+                        <p className="font-medium">{booking.service?.title || 'Serviço'}</p>
+                        <p className="text-sm text-gray-500">
+                          {formatDate(booking.scheduled_date)} às {booking.scheduled_time?.slice(0, 5)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium">{formatCurrency(booking.total_price)}</span>
+                        <span className={`badge ${s.color}`}>{s.label}</span>
+                        {hasTracking && (
+                          isExpanded
+                            ? <ChevronUp className="w-4 h-4 text-gray-400" />
+                            : <ChevronDown className="w-4 h-4 text-gray-400" />
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium">{formatCurrency(booking.total_price)}</span>
-                      <span className={`badge ${s.color}`}>{s.label}</span>
-                    </div>
+
+                    {/* Painel de rastreio — expande ao clicar */}
+                    {hasTracking && isExpanded && (
+                      <div className="border-t border-gray-100 p-4 bg-gray-50">
+                        {userRole === 'client' ? (
+                          <ClientTrackingView booking={booking} />
+                        ) : (
+                          <ProviderLocationShare booking={booking} providerId={user?.id} />
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
