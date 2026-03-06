@@ -64,24 +64,51 @@ export default function EditProfile() {
     setError(null)
     try {
       const avatarUrl = await uploadAvatar()
-      const { error: upErr } = await supabase.from('profiles').update({
-        full_name:           profile.full_name,
-        bio:                 profile.bio,
-        hourly_rate:         profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
-        role:                profile.role,
-        city:                profile.city,
-        country:             profile.country || 'PT',
-        location:            profile.location,
-        avatar_url:          avatarUrl,
-        bank_account_type:   profile.bank_account_type,
-        bank_account_value:  profile.bank_account_value,
-        updated_at:          new Date().toISOString(),
-      }).eq('id', user.id)
 
-      if (upErr) throw new Error(upErr.message)
+      // Base fields that always exist
+      const baseUpdate = {
+        full_name:   profile.full_name,
+        bio:         profile.bio,
+        hourly_rate: profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
+        role:        profile.role,
+        city:        profile.city,
+        country:     profile.country || 'PT',
+        location:    profile.location,
+        avatar_url:  avatarUrl,
+        updated_at:  new Date().toISOString(),
+      }
+
+      // Try saving with bank account fields first
+      const { error: upErr } = await supabase
+        .from('profiles')
+        .update({
+          ...baseUpdate,
+          bank_account_type:  profile.bank_account_type  ?? null,
+          bank_account_value: profile.bank_account_value ?? null,
+          bank_account_name:  profile.bank_account_name  ?? null,
+          address:            profile.address            ?? null,
+        })
+        .eq('id', user.id)
+
+      if (upErr) {
+        // If bank account columns don't exist yet, fallback to base fields only
+        if (upErr.message?.includes('bank_account') || upErr.message?.includes('schema cache')) {
+          const { error: fallbackErr } = await supabase
+            .from('profiles')
+            .update(baseUpdate)
+            .eq('id', user.id)
+          if (fallbackErr) throw new Error(fallbackErr.message)
+          setError('Perfil guardado, mas os campos bancários ainda não estão activos. Executa a migração SQL no Supabase.')
+        } else {
+          throw new Error(upErr.message)
+        }
+      }
+
       setProfile((p) => ({ ...p, avatar_url: avatarUrl }))
-      setSuccess(true)
-      setTimeout(() => setSuccess(false), 3000)
+      if (!upErr) {
+        setSuccess(true)
+        setTimeout(() => setSuccess(false), 3000)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
