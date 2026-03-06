@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { stripePromise } from '../lib/stripe'
+import { supabase } from '../lib/supabase'
 
 export const usePayments = () => {
   const [loading, setLoading] = useState(false)
@@ -9,15 +10,25 @@ export const usePayments = () => {
     setLoading(true)
     setError(null)
     try {
-      // Aqui integraria com seu backend para criar PaymentIntent
-      // Exemplo: POST /api/payments/create-intent
-      const response = await fetch('/api/payments/create-intent', {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Sessão expirada. Faça login novamente.')
+
+      // Chamar Supabase Edge Function (secret key fica server-side)
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      const response = await fetch(`${supabaseUrl}/functions/v1/create-payment-intent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
         body: JSON.stringify({ amount, currency, bookingId }),
       })
-      const { clientSecret } = await response.json()
 
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error ?? 'Erro ao criar pagamento')
+
+      const { clientSecret } = result
       const stripe = await stripePromise
       const { error: stripeError } = await stripe.confirmPayment({
         clientSecret,
