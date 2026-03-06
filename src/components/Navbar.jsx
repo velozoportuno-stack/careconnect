@@ -85,7 +85,7 @@ export default function Navbar() {
               <Link to="/login" className="text-sm font-medium text-gray-600 hover:text-gray-900">
                 Entrar
               </Link>
-              <Link to="/register" className="btn-primary text-sm py-2 px-4">
+              <Link to="/login" className="btn-primary text-sm py-2 px-4">
                 Cadastrar
               </Link>
             </div>
@@ -131,7 +131,7 @@ export default function Navbar() {
                 className="text-sm font-medium text-gray-700 py-2">
                 Entrar
               </Link>
-              <Link to="/register" onClick={() => setMobileOpen(false)}
+              <Link to="/login" onClick={() => setMobileOpen(false)}
                 className="btn-primary text-sm text-center">
                 Cadastrar
               </Link>

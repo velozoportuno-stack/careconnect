@@ -62,7 +62,7 @@ export default function Home() {
           {/* 3 CTAs */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              to="/login?role=client"
+              to="/login?tipo=cliente"
               className="flex items-center justify-center gap-2
                          bg-white text-primary-700 font-semibold
                          px-7 py-4 rounded-xl shadow-lg
@@ -73,7 +73,7 @@ export default function Home() {
             </Link>
 
             <Link
-              to="/login?role=professional"
+              to="/login?tipo=profissional"
               className="flex items-center justify-center gap-2
                          bg-primary-500 text-white font-semibold
                          px-7 py-4 rounded-xl border-2 border-primary-400
@@ -162,7 +162,7 @@ export default function Home() {
             Cria a tua conta em menos de 2 minutos e encontra o cuidador ideal.
           </p>
           <Link
-            to="/login?role=client"
+            to="/login?tipo=cliente"
             className="inline-flex items-center gap-2 bg-white text-primary-700 font-bold
                        px-8 py-4 rounded-xl hover:bg-primary-50 active:scale-95 transition-all"
           >

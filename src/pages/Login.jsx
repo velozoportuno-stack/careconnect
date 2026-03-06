@@ -114,10 +114,10 @@ function LoginForm({ role, onSuccess }) {
       <p className="text-center text-sm text-gray-500 pt-1 border-t border-gray-100">
         Não tens conta?{' '}
         <Link
-          to={`/register?role=${role}`}
+          to={`/register?tipo=${role === 'professional' ? 'profissional' : 'cliente'}`}
           className="text-primary-600 font-semibold hover:underline"
         >
-          Cadastra-te aqui
+          Cadastra-te como {role === 'professional' ? 'Profissional' : 'Cliente'}
         </Link>
       </p>
     </div>
@@ -127,7 +127,7 @@ function LoginForm({ role, onSuccess }) {
 export default function Login() {
   const [searchParams]  = useSearchParams()
   const navigate        = useNavigate()
-  const initialRole     = searchParams.get('role') === 'professional' ? 'professional' : 'client'
+  const initialRole     = searchParams.get('tipo') === 'profissional' ? 'professional' : 'client'
   const [tab, setTab]   = useState(initialRole)
 
   return (
