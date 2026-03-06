@@ -431,49 +431,69 @@ export default function EditProfile() {
         )}
 
         {/* Bank account tab */}
-        {tab === 'bank' && (
+        {tab === 'bank' && (() => {
+          // Derive bank type from country — PT=IBAN, BR=PIX, others=user choice
+          const countryBankType =
+            profile?.country === 'PT' ? 'iban' :
+            profile?.country === 'BR' ? 'pix'  : null
+          const effectiveType = countryBankType ?? profile?.bank_account_type
+
+          return (
           <div className="card space-y-5">
             <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
               <CreditCard className="w-4 h-4 flex-shrink-0" />
-              Os dados bancários são usados para transferir os seus pagamentos via Stripe Connect.
+              Os dados bancários são usados para transferir os seus pagamentos.
               Os dados são encriptados e nunca partilhados com clientes.
             </div>
 
-            <div>
-              <label className="input-label">Tipo de conta</label>
-              <div className="grid grid-cols-2 gap-3 mt-1">
-                {[
-                  { value: 'iban', label: '🏦 IBAN', desc: 'Portugal / Europa' },
-                  { value: 'pix',  label: '⚡ Chave PIX', desc: 'Brasil' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`flex flex-col gap-0.5 p-4 rounded-xl border-2 cursor-pointer transition-all
-                                ${profile?.bank_account_type === opt.value
-                                  ? 'border-primary-500 bg-primary-50'
-                                  : 'border-gray-200 hover:border-gray-300'}`}
-                  >
-                    <input
-                      type="radio"
-                      className="sr-only"
-                      checked={profile?.bank_account_type === opt.value}
-                      onChange={() => setProfile((p) => ({ ...p, bank_account_type: opt.value, bank_account_value: '' }))}
-                    />
-                    <span className="font-semibold text-gray-800">{opt.label}</span>
-                    <span className="text-xs text-gray-500">{opt.desc}</span>
-                  </label>
-                ))}
+            {/* Country-locked type hint */}
+            {countryBankType && (
+              <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+                <span>{countryBankType === 'iban' ? '🏦' : '⚡'}</span>
+                {countryBankType === 'iban'
+                  ? 'Conta IBAN — opção disponível para Portugal.'
+                  : 'Chave PIX — opção disponível para o Brasil.'}
               </div>
-            </div>
+            )}
 
-            {profile?.bank_account_type === 'iban' && (
+            {/* Type selector — only for non-PT/BR countries */}
+            {!countryBankType && (
+              <div>
+                <label className="input-label">Tipo de conta</label>
+                <div className="grid grid-cols-2 gap-3 mt-1">
+                  {[
+                    { value: 'iban', label: '🏦 IBAN',      desc: 'Portugal / Europa' },
+                    { value: 'pix',  label: '⚡ Chave PIX', desc: 'Brasil' },
+                  ].map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex flex-col gap-0.5 p-4 rounded-xl border-2 cursor-pointer transition-all
+                                  ${effectiveType === opt.value
+                                    ? 'border-primary-500 bg-primary-50'
+                                    : 'border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        checked={effectiveType === opt.value}
+                        onChange={() => setProfile((p) => ({ ...p, bank_account_type: opt.value, bank_account_value: '' }))}
+                      />
+                      <span className="font-semibold text-gray-800">{opt.label}</span>
+                      <span className="text-xs text-gray-500">{opt.desc}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {effectiveType === 'iban' && (
               <div>
                 <label className="input-label">IBAN *</label>
                 <input
                   className="input-field font-mono tracking-wider"
                   placeholder="PT50 0000 0000 0000 0000 0000 0"
                   value={profile?.bank_account_value || ''}
-                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_value: e.target.value.toUpperCase() }))}
+                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_type: 'iban', bank_account_value: e.target.value.toUpperCase() }))}
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   Formato: PT50 seguido de 21 dígitos.
@@ -481,14 +501,14 @@ export default function EditProfile() {
               </div>
             )}
 
-            {profile?.bank_account_type === 'pix' && (
+            {effectiveType === 'pix' && (
               <div>
                 <label className="input-label">Chave PIX *</label>
                 <input
                   className="input-field"
                   placeholder="CPF, email, telefone ou chave aleatória"
                   value={profile?.bank_account_value || ''}
-                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_value: e.target.value }))}
+                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_type: 'pix', bank_account_value: e.target.value }))}
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   Insere a chave PIX registada no teu banco.
@@ -496,7 +516,7 @@ export default function EditProfile() {
               </div>
             )}
 
-            {!profile?.bank_account_type && (
+            {!effectiveType && (
               <p className="text-center text-sm text-gray-400 py-4">
                 Seleciona o tipo de conta para continuar.
               </p>
@@ -509,7 +529,8 @@ export default function EditProfile() {
               </div>
             )}
           </div>
-        )}
+          )
+        })()}
 
         {/* Availability tab */}
         {tab === 'availability' && (

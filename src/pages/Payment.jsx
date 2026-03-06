@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CreditCard, Lock, CheckCircle, ChevronRight, Star } from 'lucide-react'
+import { CreditCard, Lock, CheckCircle, Star, Smartphone, Zap } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
@@ -21,30 +21,78 @@ function formatExpiry(v) {
   return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits
 }
 
+function PriceSummary({ hourlyRate, duration, totalPrice }) {
+  return (
+    <div className="mt-5 pt-4 border-t border-gray-100 space-y-2 text-sm">
+      <div className="flex justify-between text-gray-600">
+        <span>{formatCurrency(hourlyRate)} × {duration}h</span>
+        <span>{formatCurrency(totalPrice)}</span>
+      </div>
+      <div className="flex justify-between font-bold text-gray-900 text-base">
+        <span>Total a pagar</span>
+        <span className="text-primary-600">{formatCurrency(totalPrice)}</span>
+      </div>
+    </div>
+  )
+}
+
 export default function Payment() {
   const { user, pendingBooking, clearPendingBooking } = useAppStore()
   const navigate = useNavigate()
 
-  const [card, setCard] = useState({ number: '', expiry: '', cvv: '', name: '' })
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState(null)
-  const [success, setSuccess] = useState(false)
+  const [card, setCard]               = useState({ number: '', expiry: '', cvv: '', name: '' })
+  const [phone, setPhone]             = useState('')
+  const [pixKey, setPixKey]           = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('card')
+  const [clientCountry, setClientCountry] = useState(null)
+  const [loading, setLoading]         = useState(false)
+  const [error, setError]             = useState(null)
+  const [success, setSuccess]         = useState(false)
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     if (!pendingBooking) { navigate('/search'); return }
-  }, [])
+    // Fetch client country to show relevant payment methods
+    supabase.from('profiles').select('country').eq('id', user.id).single()
+      .then(({ data }) => {
+        if (!data?.country) return
+        setClientCountry(data.country)
+        // Pre-select country-preferred method
+        if (data.country === 'PT') setPaymentMethod('mbway')
+        else if (data.country === 'BR') setPaymentMethod('pix')
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!pendingBooking) return null
 
   const { provider, service, date, time, duration, address, notes, totalPrice, hourlyRate, patientData } = pendingBooking
 
-  function validateCard() {
-    const num = card.number.replace(/\s/g, '')
-    if (num.length < 16) return 'Número do cartão incompleto.'
-    if (!/^\d{2}\/\d{2}$/.test(card.expiry)) return 'Validade inválida (MM/AA).'
-    if (card.cvv.length < 3) return 'CVV inválido.'
-    if (!card.name.trim()) return 'Nome no cartão obrigatório.'
+  // Available payment methods based on country
+  const availableMethods =
+    clientCountry === 'PT' ? [
+      { id: 'mbway', label: 'MB WAY',  Icon: Smartphone },
+      { id: 'card',  label: 'Cartão',  Icon: CreditCard },
+    ] :
+    clientCountry === 'BR' ? [
+      { id: 'pix',  label: 'PIX',    Icon: Zap },
+      { id: 'card', label: 'Cartão', Icon: CreditCard },
+    ] :
+    [{ id: 'card', label: 'Cartão', Icon: CreditCard }]
+
+  function validatePayment() {
+    if (paymentMethod === 'card') {
+      const num = card.number.replace(/\s/g, '')
+      if (num.length < 16)                        return 'Número do cartão incompleto.'
+      if (!/^\d{2}\/\d{2}$/.test(card.expiry))   return 'Validade inválida (MM/AA).'
+      if (card.cvv.length < 3)                    return 'CVV inválido.'
+      if (!card.name.trim())                      return 'Nome no cartão obrigatório.'
+    }
+    if (paymentMethod === 'mbway') {
+      if (!phone.trim()) return 'Número de telemóvel MB WAY obrigatório.'
+    }
+    if (paymentMethod === 'pix') {
+      if (!pixKey.trim()) return 'Chave PIX obrigatória.'
+    }
     return null
   }
 
@@ -73,7 +121,7 @@ export default function Payment() {
   }
 
   async function handlePay() {
-    const err = validateCard()
+    const err = validatePayment()
     if (err) { setError(err); return }
     setError(null)
     setLoading(true)
@@ -94,6 +142,7 @@ export default function Payment() {
           notes:          notes || null,
           status:         'confirmed',
           payment_status: 'paid',
+          payment_method: paymentMethod,
         })
         .select()
         .single()
@@ -198,84 +247,138 @@ export default function Payment() {
           </div>
         </div>
 
-        {/* Card form */}
-        <div className="card mb-5">
-          <div className="flex items-center gap-2 mb-5">
-            <CreditCard className="w-5 h-5 text-primary-600" />
-            <h2 className="text-lg font-bold text-gray-900">Dados do Cartão</h2>
+        {/* Payment method selector (only when multiple options exist) */}
+        {availableMethods.length > 1 && (
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
+            {availableMethods.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                onClick={() => { setPaymentMethod(id); setError(null) }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all
+                            ${paymentMethod === id
+                              ? 'bg-white shadow-sm text-primary-600'
+                              : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
           </div>
+        )}
 
-          <div className="space-y-4">
-            {/* Card number */}
-            <div>
-              <label className="input-label">Número do Cartão *</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="input-field pr-12"
-                  placeholder="1234 5678 9012 3456"
-                  value={card.number}
-                  onChange={(e) => setCard((c) => ({ ...c, number: formatCardNumber(e.target.value) }))}
-                />
-                <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
-              </div>
+        {/* MB WAY form */}
+        {paymentMethod === 'mbway' && (
+          <div className="card mb-5">
+            <div className="flex items-center gap-2 mb-5">
+              <Smartphone className="w-5 h-5 text-primary-600" />
+              <h2 className="text-lg font-bold text-gray-900">MB WAY</h2>
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              {/* Expiry */}
-              <div>
-                <label className="input-label">Validade *</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="input-field"
-                  placeholder="MM/AA"
-                  value={card.expiry}
-                  onChange={(e) => setCard((c) => ({ ...c, expiry: formatExpiry(e.target.value) }))}
-                />
-              </div>
-
-              {/* CVV */}
-              <div>
-                <label className="input-label">CVV *</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="input-field"
-                  placeholder="123"
-                  maxLength={4}
-                  value={card.cvv}
-                  onChange={(e) => setCard((c) => ({ ...c, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
-                />
-              </div>
-            </div>
-
-            {/* Cardholder name */}
             <div>
-              <label className="input-label">Nome no Cartão *</label>
+              <label className="input-label">Número de Telemóvel *</label>
+              <input
+                type="tel"
+                className="input-field"
+                placeholder="+351 912 345 678"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Receberás uma notificação MB WAY para confirmar o pagamento.
+              </p>
+            </div>
+            <PriceSummary hourlyRate={hourlyRate} duration={duration} totalPrice={totalPrice} />
+          </div>
+        )}
+
+        {/* PIX form */}
+        {paymentMethod === 'pix' && (
+          <div className="card mb-5">
+            <div className="flex items-center gap-2 mb-5">
+              <Zap className="w-5 h-5 text-primary-600" />
+              <h2 className="text-lg font-bold text-gray-900">PIX</h2>
+            </div>
+            <div>
+              <label className="input-label">Chave PIX *</label>
               <input
                 type="text"
                 className="input-field"
-                placeholder="MARIA A SILVA"
-                value={card.name}
-                onChange={(e) => setCard((c) => ({ ...c, name: e.target.value.toUpperCase() }))}
+                placeholder="CPF, email, telefone ou chave aleatória"
+                value={pixKey}
+                onChange={(e) => setPixKey(e.target.value)}
               />
+              <p className="text-xs text-gray-400 mt-1">
+                Após confirmar, receberás os dados para transferência via PIX.
+              </p>
             </div>
+            <PriceSummary hourlyRate={hourlyRate} duration={duration} totalPrice={totalPrice} />
           </div>
+        )}
 
-          {/* Price summary */}
-          <div className="mt-5 pt-4 border-t border-gray-100 space-y-2 text-sm">
-            <div className="flex justify-between text-gray-600">
-              <span>{formatCurrency(hourlyRate)} × {duration}h</span>
-              <span>{formatCurrency(totalPrice)}</span>
+        {/* Card form */}
+        {paymentMethod === 'card' && (
+          <div className="card mb-5">
+            <div className="flex items-center gap-2 mb-5">
+              <CreditCard className="w-5 h-5 text-primary-600" />
+              <h2 className="text-lg font-bold text-gray-900">Dados do Cartão</h2>
             </div>
-            <div className="flex justify-between font-bold text-gray-900 text-base">
-              <span>Total a pagar</span>
-              <span className="text-primary-600">{formatCurrency(totalPrice)}</span>
+
+            <div className="space-y-4">
+              <div>
+                <label className="input-label">Número do Cartão *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="input-field pr-12"
+                    placeholder="1234 5678 9012 3456"
+                    value={card.number}
+                    onChange={(e) => setCard((c) => ({ ...c, number: formatCardNumber(e.target.value) }))}
+                  />
+                  <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="input-label">Validade *</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="input-field"
+                    placeholder="MM/AA"
+                    value={card.expiry}
+                    onChange={(e) => setCard((c) => ({ ...c, expiry: formatExpiry(e.target.value) }))}
+                  />
+                </div>
+                <div>
+                  <label className="input-label">CVV *</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="input-field"
+                    placeholder="123"
+                    maxLength={4}
+                    value={card.cvv}
+                    onChange={(e) => setCard((c) => ({ ...c, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="input-label">Nome no Cartão *</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="MARIA A SILVA"
+                  value={card.name}
+                  onChange={(e) => setCard((c) => ({ ...c, name: e.target.value.toUpperCase() }))}
+                />
+              </div>
             </div>
+
+            <PriceSummary hourlyRate={hourlyRate} duration={duration} totalPrice={totalPrice} />
           </div>
-        </div>
+        )}
 
         {error && (
           <p className="text-red-500 text-sm mb-4 px-1">{error}</p>
@@ -297,20 +400,24 @@ export default function Payment() {
           ) : (
             <>
               <Lock className="w-5 h-5" />
-              Pagar {formatCurrency(totalPrice)}
+              Pagar {formatCurrency(totalPrice)}{' '}
+              {paymentMethod === 'mbway' ? 'via MB WAY'
+               : paymentMethod === 'pix' ? 'via PIX'
+               : 'com cartão'}
             </>
           )}
         </button>
 
         <div className="flex items-center justify-center gap-2 mt-4 text-xs text-gray-400">
           <Lock className="w-3.5 h-3.5" />
-          Pagamento seguro via Stripe · SSL encriptado
+          Pagamento seguro · SSL encriptado
         </div>
 
-        {/* Test mode hint */}
-        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 text-center">
-          Modo de teste — usa o cartão <strong>4242 4242 4242 4242</strong>, qualquer validade e CVV.
-        </div>
+        {paymentMethod === 'card' && (
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 text-center">
+            Modo de teste — usa o cartão <strong>4242 4242 4242 4242</strong>, qualquer validade e CVV.
+          </div>
+        )}
       </main>
     </div>
   )

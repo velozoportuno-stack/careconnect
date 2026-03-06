@@ -95,6 +95,10 @@ export default function Register() {
         hourly_rate: parseFloat(values.hourly_rate) || null,
         bio:         values.bio || null,
       }),
+      ...(values.service_type === 'nurse' && {
+        nursing_license:         values.nursing_license || null,
+        nursing_license_country: values.country || null,
+      }),
     }
 
     const { data, error: signUpError } = await signUp(values.email, values.password, userData)
@@ -416,6 +420,26 @@ export default function Register() {
                     <p className="text-red-500 text-xs mt-1">{errors.service_type.message}</p>
                   )}
                 </div>
+
+                {/* Nursing license — only when nurse is selected */}
+                {selectedServiceType === 'nurse' && (
+                  <div>
+                    <label className="input-label">
+                      {watch('country') === 'BR'
+                        ? 'Número do COREN (Conselho Regional de Enfermagem) *'
+                        : 'Número da Cédula Profissional (Ordem dos Enfermeiros) *'}
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder={watch('country') === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
+                      {...register('nursing_license', { required: 'Número de licença profissional obrigatório' })}
+                    />
+                    {errors.nursing_license && (
+                      <p className="text-red-500 text-xs mt-1">{errors.nursing_license.message}</p>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label className="input-label">Preço por hora (€) *</label>
