@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Heart, Star, MapPin, Shield, ArrowLeft, Clock, CalendarDays, CreditCard } from 'lucide-react'
+import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { formatCurrency, formatRating } from '../utils/formatters'
@@ -117,24 +118,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-
-      {/* ── Nav ── */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-          <Link to="/" className="flex items-center gap-2">
-            <Heart className="w-5 h-5 text-primary-600" fill="currentColor" />
-            <span className="text-lg font-bold text-gray-900">
-              Care<span className="text-primary-600">Connect</span>
-            </span>
-          </Link>
-          <Link
-            to="/search"
-            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 font-medium"
-          >
-            <ArrowLeft className="w-4 h-4" /> Voltar à pesquisa
-          </Link>
-        </div>
-      </nav>
+      <Navbar />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">

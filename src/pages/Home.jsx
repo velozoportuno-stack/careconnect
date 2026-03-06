@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import Navbar from '../components/Navbar'
 import { Heart, Shield, Star, CheckCircle, Users, ArrowRight } from 'lucide-react'
 
 const services = [
@@ -38,25 +39,7 @@ const trust = [
 export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
-
-      {/* ── Nav ── */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-          <div className="flex items-center gap-2">
-            <Heart className="w-6 h-6 text-primary-600" fill="currentColor" />
-            <span className="text-xl font-bold text-gray-900">
-              Care<span className="text-primary-600">Connect</span>
-            </span>
-          </div>
-          <Link
-            to="/login"
-            className="text-sm font-semibold text-primary-600 border border-primary-300
-                       px-4 py-2 rounded-lg hover:bg-primary-50 transition-colors"
-          >
-            Entrar
-          </Link>
-        </div>
-      </nav>
+      <Navbar />
 
       {/* ── Hero ── */}
       <section className="bg-gradient-to-b from-primary-600 to-primary-700 text-white pt-20 pb-28 px-4 text-center">

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { Calendar, Clock, MapPin } from 'lucide-react'
+import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { useBookings } from '../hooks/useBookings'
@@ -70,11 +71,7 @@ export default function Booking() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <Link to="/" className="text-xl font-bold text-primary-600">CareConnect</Link>
-        </div>
-      </nav>
+      <Navbar />
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-2xl font-bold mb-6">Novo Agendamento</h1>
