@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Star, MapPin, Shield, CalendarDays, CreditCard } from 'lucide-react'
 import Navbar from '../components/Navbar'
+import AvailabilityCalendar from '../components/availability/AvailabilityCalendar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { formatCurrency, formatRating } from '../utils/formatters'
@@ -254,6 +255,16 @@ export default function Profile() {
                 </div>
               </div>
             )}
+
+            {/* Availability calendar */}
+            <AvailabilityCalendar
+              professionalId={id}
+              onSlotSelect={(date, time) => {
+                setSelectedDate(date)
+                setSelectedTime(time)
+                setBookingError(null)
+              }}
+            />
 
             {/* Reviews */}
             {reviews.length > 0 && (

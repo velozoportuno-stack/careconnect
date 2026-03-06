@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Camera, Upload, Save, ChevronLeft, User, CreditCard,
-  CheckCircle, AlertCircle, Loader2, MapPin,
+  CheckCircle, AlertCircle, Loader2, MapPin, CalendarDays,
 } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
@@ -14,6 +14,21 @@ const SERVICE_TYPES = [
   { value: 'nurse',     label: 'Enfermeiro(a)',          icon: '🩺' },
   { value: 'cleaner',   label: 'Assistente de Limpeza',  icon: '🧹' },
 ]
+
+const DAYS_SCHEDULE = [
+  { day: 1, label: 'Segunda-feira' },
+  { day: 2, label: 'Terça-feira' },
+  { day: 3, label: 'Quarta-feira' },
+  { day: 4, label: 'Quinta-feira' },
+  { day: 5, label: 'Sexta-feira' },
+  { day: 6, label: 'Sábado' },
+  { day: 0, label: 'Domingo' },
+]
+
+const TIME_OPTIONS = Array.from({ length: 25 }, (_, i) => {
+  const h = String(i).padStart(2, '0')
+  return `${h}:00`
+})
 
 function completionPercent(profile) {
   const fields = ['avatar_url', 'bio', 'hourly_rate', 'city', 'bank_account_value']
@@ -35,6 +50,14 @@ export default function EditProfile() {
   const [error, setError]           = useState(null)
   const [country, setCountry]       = useState('PT')
 
+  // Availability tab state
+  const [schedule, setSchedule] = useState(
+    DAYS_SCHEDULE.map((d) => ({ ...d, active: false, start: '09:00', end: '17:00' }))
+  )
+  const [availLoading, setAvailLoading] = useState(false)
+  const [availSaving, setAvailSaving]   = useState(false)
+  const [availSuccess, setAvailSuccess] = useState(false)
+
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
@@ -47,6 +70,69 @@ export default function EditProfile() {
       setCountry(data.country || 'PT')
     }
     setLoading(false)
+  }
+
+  // Load availability when switching to that tab
+  useEffect(() => {
+    if (tab !== 'availability' || !user) return
+    loadAvailability()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadAvailability() {
+    setAvailLoading(true)
+    const { data } = await supabase
+      .from('professional_availability')
+      .select('*')
+      .eq('professional_id', user.id)
+      .eq('is_active', true)
+
+    if (data) {
+      setSchedule((prev) =>
+        prev.map((day) => {
+          const found = data.find((d) => d.day_of_week === day.day)
+          return found
+            ? { ...day, active: true, start: found.start_time.slice(0, 5), end: found.end_time.slice(0, 5) }
+            : { ...day, active: false }
+        })
+      )
+    }
+    setAvailLoading(false)
+  }
+
+  async function handleSaveAvailability() {
+    setAvailSaving(true)
+    setError(null)
+    try {
+      // Replace all entries for this professional
+      await supabase
+        .from('professional_availability')
+        .delete()
+        .eq('professional_id', user.id)
+
+      const toInsert = schedule
+        .filter((d) => d.active)
+        .map((d) => ({
+          professional_id: user.id,
+          day_of_week:     d.day,
+          start_time:      d.start,
+          end_time:        d.end,
+          is_active:       true,
+        }))
+
+      if (toInsert.length) {
+        const { error: insErr } = await supabase
+          .from('professional_availability')
+          .insert(toInsert)
+        if (insErr) throw new Error(insErr.message)
+      }
+
+      setAvailSuccess(true)
+      setTimeout(() => setAvailSuccess(false), 3000)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAvailSaving(false)
+    }
   }
 
   async function uploadAvatar() {
@@ -178,8 +264,9 @@ export default function EditProfile() {
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
           {[
-            { key: 'profile', label: 'Dados do Perfil',   Icon: User },
-            { key: 'bank',    label: 'Conta Bancária',     Icon: CreditCard },
+            { key: 'profile',      label: 'Perfil',          Icon: User },
+            { key: 'bank',         label: 'Conta Bancária',   Icon: CreditCard },
+            ...(isProvider ? [{ key: 'availability', label: 'Disponibilidade', Icon: CalendarDays }] : []),
           ].map(({ key, label, Icon }) => (
             <button
               key={key}
@@ -424,6 +511,114 @@ export default function EditProfile() {
           </div>
         )}
 
+        {/* Availability tab */}
+        {tab === 'availability' && (
+          <div className="card space-y-4">
+            <p className="text-sm text-gray-500">
+              Define os dias e horários em que estás disponível para receber clientes.
+              Os clientes verão estes horários no teu perfil.
+            </p>
+
+            {availLoading ? (
+              <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                A carregar disponibilidade...
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {schedule.map((day, idx) => (
+                  <div
+                    key={day.day}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all
+                                ${day.active ? 'border-primary-200 bg-primary-50' : 'border-gray-100 bg-white'}`}
+                  >
+                    {/* Toggle */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSchedule((prev) =>
+                          prev.map((d, i) => i === idx ? { ...d, active: !d.active } : d)
+                        )
+                      }
+                      className={`relative inline-flex w-10 h-6 rounded-full flex-shrink-0 transition-colors
+                                  ${day.active ? 'bg-primary-600' : 'bg-gray-200'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow
+                                    transition-transform ${day.active ? 'translate-x-4' : 'translate-x-0'}`}
+                      />
+                    </button>
+
+                    {/* Day label */}
+                    <span className={`text-sm font-semibold w-32 flex-shrink-0
+                                      ${day.active ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {day.label}
+                    </span>
+
+                    {/* Time range */}
+                    {day.active && (
+                      <div className="flex items-center gap-2 flex-1">
+                        <select
+                          className="input-field py-1.5 text-sm flex-1"
+                          value={day.start}
+                          onChange={(e) =>
+                            setSchedule((prev) =>
+                              prev.map((d, i) => i === idx ? { ...d, start: e.target.value } : d)
+                            )
+                          }
+                        >
+                          {TIME_OPTIONS.slice(0, -1).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-gray-400 flex-shrink-0">até</span>
+                        <select
+                          className="input-field py-1.5 text-sm flex-1"
+                          value={day.end}
+                          onChange={(e) =>
+                            setSchedule((prev) =>
+                              prev.map((d, i) => i === idx ? { ...d, end: e.target.value } : d)
+                            )
+                          }
+                        >
+                          {TIME_OPTIONS.slice(1).map((t) => (
+                            <option key={t} value={t} disabled={t <= day.start}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {availSuccess && (
+              <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                Disponibilidade guardada com sucesso!
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveAvailability}
+              disabled={availSaving}
+              className="btn-primary w-full py-3 text-base disabled:opacity-60"
+            >
+              {availSaving ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  A guardar...
+                </span>
+              ) : (
+                <>
+                  <Save className="w-5 h-5" />
+                  Guardar Disponibilidade
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Feedback */}
         {error && (
           <div className="flex items-center gap-2 mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
@@ -438,8 +633,8 @@ export default function EditProfile() {
           </div>
         )}
 
-        {/* Save button */}
-        <button
+        {/* Save button — only for profile and bank tabs */}
+        {tab !== 'availability' && <button
           onClick={handleSave}
           disabled={saving}
           className="btn-primary w-full mt-5 py-4 text-base disabled:opacity-60"
@@ -455,7 +650,7 @@ export default function EditProfile() {
               Guardar Alterações
             </>
           )}
-        </button>
+        </button>}
       </main>
     </div>
   )

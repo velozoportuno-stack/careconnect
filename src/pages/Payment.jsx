@@ -48,6 +48,30 @@ export default function Payment() {
     return null
   }
 
+  async function captureClientLocation(bookingId) {
+    if (!navigator.geolocation) return
+    try {
+      const pos = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 })
+      )
+      const lat = pos.coords.latitude
+      const lng = pos.coords.longitude
+      let clientAddress = null
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+          { headers: { 'Accept-Language': 'pt' } }
+        )
+        const geo = await r.json()
+        clientAddress = geo.display_name ?? null
+      } catch {}
+      await supabase
+        .from('bookings')
+        .update({ client_latitude: lat, client_longitude: lng, client_address: clientAddress })
+        .eq('id', bookingId)
+    } catch {}
+  }
+
   async function handlePay() {
     const err = validateCard()
     if (err) { setError(err); return }
@@ -76,7 +100,10 @@ export default function Payment() {
 
       if (bookingErr) throw new Error(bookingErr.message)
 
-      // 2. If patient data, save it
+      // 2. Capture client GPS location (non-blocking — triggers permission dialog)
+      captureClientLocation(booking.id)
+
+      // 3. If patient data, save it
       if (patientData?.name) {
         const { data: pp, error: ppErr } = await supabase
           .from('patient_profiles')
