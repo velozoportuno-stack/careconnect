@@ -40,7 +40,7 @@ function today() {
 
 export default function Profile() {
   const { id } = useParams()
-  const { user } = useAppStore()
+  const { user, setPendingBooking } = useAppStore()
   const navigate = useNavigate()
 
   const [profile, setProfile] = useState(null)
@@ -89,15 +89,22 @@ export default function Profile() {
       return
     }
     const svcId = selectedService || (services[0]?.id ?? null)
-    navigate(
-      `/booking?provider=${id}` +
-      `&service=${svcId}` +
-      `&date=${selectedDate}` +
-      `&time=${selectedTime}` +
-      `&duration=${duration}` +
-      (address ? `&address=${encodeURIComponent(address)}` : '') +
-      (notes   ? `&notes=${encodeURIComponent(notes)}`   : '')
-    )
+    const svc = services.find((s) => s.id === svcId) || services[0]
+    const rate = svc?.price_per_hour || profile?.hourly_rate || 0
+    setPendingBooking({
+      providerId: id,
+      provider: profile,
+      serviceId: svcId,
+      service: svc,
+      date: selectedDate,
+      time: selectedTime,
+      duration,
+      address,
+      notes,
+      hourlyRate: rate,
+      totalPrice: rate * duration,
+    })
+    navigate('/booking')
   }
 
   if (loading) {

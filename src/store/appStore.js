@@ -5,6 +5,7 @@ export const useAppStore = create((set) => ({
   userRole: null,
   bookings: [],
   notifications: [],
+  pendingBooking: null,   // draft booking data during checkout flow
 
   setUser: (user) => set({ user }),
   setUserRole: (role) => set({ userRole: role }),
@@ -13,4 +14,6 @@ export const useAppStore = create((set) => ({
     notifications: [notification, ...state.notifications]
   })),
   clearUser: () => set({ user: null, userRole: null }),
+  setPendingBooking: (data) => set({ pendingBooking: data }),
+  clearPendingBooking: () => set({ pendingBooking: null }),
 }))

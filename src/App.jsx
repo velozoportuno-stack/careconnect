@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard'
 import Search from './pages/Search'
 import Profile from './pages/Profile'
 import Booking from './pages/Booking'
+import Payment from './pages/Payment'
+import EditProfile from './pages/EditProfile'
 import Admin from './pages/Admin'
 import AuthCallback from './pages/AuthCallback'
 import CompleteProfile from './pages/CompleteProfile'
@@ -18,7 +20,7 @@ function PrivateRoute({ children }) {
 }
 
 export default function App() {
-  useAuth() // inicializa listener de auth
+  useAuth()
 
   return (
     <BrowserRouter>
@@ -32,6 +34,8 @@ export default function App() {
         <Route path="/complete-profile" element={<PrivateRoute><CompleteProfile /></PrivateRoute>} />
         <Route path="/dashboard"        element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/booking"          element={<PrivateRoute><Booking /></PrivateRoute>} />
+        <Route path="/payment"          element={<PrivateRoute><Payment /></PrivateRoute>} />
+        <Route path="/edit-profile"     element={<PrivateRoute><EditProfile /></PrivateRoute>} />
         <Route path="/admin"            element={<PrivateRoute><Admin /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>

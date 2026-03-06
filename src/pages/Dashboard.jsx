@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar'
 import {
   Heart, CalendarDays, CheckCircle2, Clock, MapPin, LogOut,
   Search, ChevronDown, ChevronUp, Plus, Briefcase, Navigation,
+  Settings, PlusCircle, Star,
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
@@ -11,6 +12,8 @@ import { useBookings } from '../hooks/useBookings'
 import { formatDate, formatCurrency } from '../utils/formatters'
 import ClientTrackingView from '../components/maps/ClientTrackingView'
 import ProviderLocationShare from '../components/maps/ProviderLocationShare'
+import MedicationAlarms from '../components/dashboard/MedicationAlarms'
+import AddHoursModal from '../components/dashboard/AddHoursModal'
 
 const STATUS_LABELS = {
   pending:     { label: 'Pendente',       css: 'status-pending' },
@@ -29,6 +32,8 @@ const ROLE_LABEL = {
 }
 
 const TRACKING_STATUSES = new Set(['confirmed', 'in_progress', 'completed'])
+const CARE_ROLES = new Set(['caregiver', 'nurse'])
+const ACTIVE_STATUSES = new Set(['confirmed', 'in_progress'])
 
 function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = 'bg-primary-50' }) {
   return (
@@ -44,14 +49,14 @@ function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = '
   )
 }
 
-function BookingRow({ booking, userRole, userId, isExpanded, onToggle }) {
+function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh }) {
   const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
   const hasTracking = TRACKING_STATUSES.has(booking.status)
-  const isProvider = userRole !== 'client'
+  const isProvider  = userRole !== 'client'
+  const isActive    = ACTIVE_STATUSES.has(booking.status)
+  const hasCare     = CARE_ROLES.has(isProvider ? userRole : booking.provider?.role)
 
-  const otherParty = isProvider
-    ? booking.client?.full_name
-    : booking.provider?.full_name
+  const otherParty  = isProvider ? booking.client : booking.provider
 
   return (
     <div className="border border-gray-100 rounded-2xl overflow-hidden bg-white">
@@ -59,28 +64,62 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle }) {
         className={`flex items-start gap-4 p-5 ${hasTracking ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}
         onClick={() => hasTracking && onToggle(booking.id)}
       >
-        {/* Date column */}
-        <div className="flex-shrink-0 text-center bg-primary-50 rounded-xl px-3 py-2 min-w-[56px]">
-          <div className="text-xs font-medium text-primary-500 uppercase">
-            {new Date(booking.scheduled_date).toLocaleDateString('pt-PT', { month: 'short' })}
+        {/* Provider avatar (shown to client) */}
+        {!isProvider && booking.provider && (
+          <div className="flex-shrink-0">
+            {booking.provider.avatar_url ? (
+              <img
+                src={booking.provider.avatar_url}
+                alt={booking.provider.full_name}
+                className="w-14 h-14 rounded-2xl object-cover shadow-sm"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-2xl bg-primary-100 text-primary-700 font-bold text-lg
+                              flex items-center justify-center shadow-sm">
+                {booking.provider.full_name?.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+              </div>
+            )}
           </div>
-          <div className="text-2xl font-extrabold text-primary-700 leading-none">
-            {new Date(booking.scheduled_date).getDate()}
+        )}
+
+        {/* Date column (for provider view) */}
+        {isProvider && (
+          <div className="flex-shrink-0 text-center bg-primary-50 rounded-xl px-3 py-2 min-w-[56px]">
+            <div className="text-xs font-medium text-primary-500 uppercase">
+              {new Date(booking.scheduled_date).toLocaleDateString('pt-PT', { month: 'short' })}
+            </div>
+            <div className="text-2xl font-extrabold text-primary-700 leading-none">
+              {new Date(booking.scheduled_date).getDate()}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="font-bold text-gray-900">
+              {!isProvider && (
+                <p className="font-bold text-gray-900 text-base">
+                  {booking.provider?.full_name || 'Profissional'}
+                </p>
+              )}
+              <p className={`${isProvider ? 'font-bold text-gray-900' : 'text-sm text-primary-600 font-medium'}`}>
                 {booking.service?.title || (isProvider ? 'Serviço agendado' : 'Serviço')}
               </p>
-              <p className="text-sm text-gray-500 mt-0.5">
-                {otherParty && `${isProvider ? 'Cliente' : 'Profissional'}: ${otherParty} · `}
-                às {booking.scheduled_time?.slice(0, 5)}
+              <p className="text-xs text-gray-400 mt-0.5">
+                {isProvider && otherParty ? `Cliente: ${otherParty.full_name} · ` : ''}
+                {formatDate(booking.scheduled_date)} às {booking.scheduled_time?.slice(0, 5)}
                 {booking.duration_hours && ` · ${booking.duration_hours}h`}
               </p>
+              {booking.provider?.rating > 0 && !isProvider && (
+                <div className="flex items-center gap-1 mt-1">
+                  <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                  <span className="text-xs font-semibold text-gray-600">
+                    {Number(booking.provider.rating).toFixed(1)}
+                  </span>
+                  <span className="text-xs text-gray-400">({booking.provider.total_reviews})</span>
+                </div>
+              )}
               {booking.address && (
                 <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
                   <MapPin className="w-3 h-3" />
@@ -98,11 +137,25 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle }) {
             </div>
           </div>
 
-          {/* GPS indicator for in-progress */}
+          {/* GPS indicator */}
           {booking.status === 'in_progress' && (
             <div className="flex items-center gap-1 mt-2 text-xs text-primary-600 font-medium">
               <Navigation className="w-3 h-3 animate-pulse" />
               {isProvider ? 'Partilha de localização activa' : 'A seguir localização em tempo real'}
+            </div>
+          )}
+
+          {/* Action buttons for client on active bookings */}
+          {!isProvider && isActive && (
+            <div className="mt-3">
+              <button
+                onClick={(e) => { e.stopPropagation(); onAddHours(booking) }}
+                className="flex items-center gap-1.5 text-xs font-semibold text-primary-600
+                           bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                Acrescentar horas
+              </button>
             </div>
           )}
         </div>
@@ -116,11 +169,19 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle }) {
 
       {/* Tracking panel */}
       {hasTracking && isExpanded && (
-        <div className="border-t border-gray-100 p-5 bg-gray-50">
+        <div className="border-t border-gray-100 p-5 bg-gray-50 space-y-4">
           {userRole === 'client' ? (
             <ClientTrackingView booking={booking} />
           ) : (
             <ProviderLocationShare booking={booking} providerId={userId} />
+          )}
+
+          {/* Medication alarms for care bookings */}
+          {hasCare && (
+            <MedicationAlarms
+              bookingId={booking.id}
+              isProvider={isProvider}
+            />
           )}
         </div>
       )}
@@ -133,8 +194,9 @@ export default function Dashboard() {
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
-  const [expandedId, setExpandedId] = useState(null)
-  const [filter, setFilter] = useState('all')
+  const [expandedId, setExpandedId]         = useState(null)
+  const [filter, setFilter]                 = useState('all')
+  const [addHoursBooking, setAddHoursBooking] = useState(null)
 
   useEffect(() => { fetchBookings() }, [])
 
@@ -146,7 +208,7 @@ export default function Dashboard() {
   const isProvider = userRole && userRole !== 'client' && userRole !== 'admin'
 
   const filteredBookings = bookings.filter((b) => {
-    if (filter === 'all') return true
+    if (filter === 'all')    return true
     if (filter === 'active') return ['pending', 'confirmed', 'in_progress'].includes(b.status)
     if (filter === 'done')   return b.status === 'completed'
     return true
@@ -181,12 +243,24 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {!isProvider && (
-            <Link to="/search" className="btn-primary text-sm">
-              <Plus className="w-4 h-4" />
-              Novo agendamento
-            </Link>
-          )}
+          <div className="flex items-center gap-2">
+            {isProvider && (
+              <Link
+                to="/edit-profile"
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl
+                           text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Editar perfil
+              </Link>
+            )}
+            {!isProvider && (
+              <Link to="/search" className="btn-primary text-sm">
+                <Plus className="w-4 h-4" />
+                Novo agendamento
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* ── Stats ── */}
@@ -195,8 +269,6 @@ export default function Dashboard() {
             icon={CalendarDays}
             value={bookings.length}
             label="Total de agendamentos"
-            color="text-primary-600"
-            bg="bg-primary-50"
           />
           <StatCard
             icon={Clock}
@@ -219,7 +291,6 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-bold text-gray-900">Agendamentos</h2>
 
-            {/* Filter tabs */}
             <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
               {[
                 { key: 'all',    label: 'Todos' },
@@ -289,12 +360,23 @@ export default function Dashboard() {
                   userId={user?.id}
                   isExpanded={expandedId === booking.id}
                   onToggle={(id) => setExpandedId((prev) => (prev === id ? null : id))}
+                  onAddHours={(b) => setAddHoursBooking(b)}
+                  onRefresh={fetchBookings}
                 />
               ))}
             </div>
           )}
         </div>
       </main>
+
+      {/* Add Hours Modal */}
+      {addHoursBooking && (
+        <AddHoursModal
+          booking={addHoursBooking}
+          onClose={() => setAddHoursBooking(null)}
+          onSuccess={fetchBookings}
+        />
+      )}
     </div>
   )
 }
