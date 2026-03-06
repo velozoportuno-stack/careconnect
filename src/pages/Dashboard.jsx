@@ -14,6 +14,7 @@ import ClientTrackingView from '../components/maps/ClientTrackingView'
 import ProviderLocationShare from '../components/maps/ProviderLocationShare'
 import MedicationAlarms from '../components/dashboard/MedicationAlarms'
 import AddHoursModal from '../components/dashboard/AddHoursModal'
+import ServiceManager from '../components/dashboard/ServiceManager'
 
 const STATUS_LABELS = {
   pending:     { label: 'Pendente',       css: 'status-pending' },
@@ -285,6 +286,9 @@ export default function Dashboard() {
             bg="bg-emerald-50"
           />
         </div>
+
+        {/* ── Service Manager (providers only) ── */}
+        {isProvider && <ServiceManager />}
 
         {/* ── Bookings panel ── */}
         <div className="card">

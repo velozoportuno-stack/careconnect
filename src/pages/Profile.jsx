@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
-import { Heart, Star, MapPin, Shield, ArrowLeft, Clock, CalendarDays, CreditCard } from 'lucide-react'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Star, MapPin, Shield, CalendarDays, CreditCard } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
@@ -40,6 +40,7 @@ function today() {
 
 export default function Profile() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const { user, setPendingBooking } = useAppStore()
   const navigate = useNavigate()
 
@@ -60,9 +61,16 @@ export default function Profile() {
   useEffect(() => { fetchProfile() }, [id])
 
   const fetchProfile = async () => {
+    const preselectedServiceId = searchParams.get('service')
+
     const [{ data: prof }, { data: svc }, { data: rev }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
-      supabase.from('services').select('*').eq('provider_id', id).eq('is_available', true),
+      supabase
+        .from('provider_services')
+        .select('*')
+        .eq('provider_id', id)
+        .eq('is_available', true)
+        .order('created_at', { ascending: true }),
       supabase
         .from('reviews')
         .select('rating, comment, created_at, reviewer:reviewer_id(full_name)')
@@ -73,13 +81,22 @@ export default function Profile() {
     setProfile(prof)
     setServices(svc || [])
     setReviews(rev || [])
-    if (svc?.length) setSelectedService(svc[0].id)
+    if (svc?.length) {
+      const match = preselectedServiceId && svc.find((s) => s.id === preselectedServiceId)
+      setSelectedService(match ? match.id : svc[0].id)
+    }
     setLoading(false)
   }
 
   const totalPrice = () => {
-    const rate = profile?.hourly_rate || 0
+    const svc = services.find((s) => s.id === selectedService) || services[0]
+    const rate = svc?.price_per_hour || profile?.hourly_rate || 0
     return rate * duration
+  }
+
+  const displayRate = () => {
+    const svc = services.find((s) => s.id === selectedService) || services[0]
+    return svc?.price_per_hour || profile?.hourly_rate || 0
   }
 
   const handleBook = () => {
@@ -222,13 +239,11 @@ export default function Profile() {
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900">{svc.title}</div>
-                          {svc.description && (
-                            <div className="text-sm text-gray-500 mt-0.5">{svc.description}</div>
+                          {(svc.description || svc.bio) && (
+                            <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">
+                              {svc.description || svc.bio}
+                            </div>
                           )}
-                          <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
-                            <Clock className="w-3 h-3" />
-                            Duração base: {svc.duration_hours}h
-                          </div>
                         </div>
                       </div>
                       <span className="font-bold text-primary-600 text-sm whitespace-nowrap ml-4">
@@ -351,10 +366,10 @@ export default function Profile() {
                 </div>
 
                 {/* Price summary */}
-                {profile.hourly_rate && (
+                {(displayRate() > 0) && (
                   <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
                     <div className="flex justify-between text-gray-600">
-                      <span>{formatCurrency(profile.hourly_rate)} × {duration}h</span>
+                      <span>{formatCurrency(displayRate())} × {duration}h</span>
                       <span className="font-medium">{formatCurrency(totalPrice())}</span>
                     </div>
                     <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-2 mt-2">
