@@ -1,136 +1,403 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { Star, MapPin, Clock, Shield, Calendar } from 'lucide-react'
+import { Heart, Star, MapPin, Shield, ArrowLeft, Clock, CalendarDays, CreditCard } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { formatCurrency, formatRating } from '../utils/formatters'
+
+const ROLE_LABEL = {
+  caregiver: 'Cuidador(a) de Idosos',
+  nurse:     'Enfermeiro(a)',
+  cleaner:   'Assistente de Limpeza',
+}
+
+const ROLE_COLOR = {
+  caregiver: 'badge-amber',
+  nurse:     'badge-blue',
+  cleaner:   'badge-teal',
+}
+
+function StarRating({ rating, total }) {
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          className={`w-4 h-4 ${n <= Math.round(rating) ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'}`}
+        />
+      ))}
+      <span className="text-sm text-gray-600 ml-1 font-medium">{formatRating(rating)}</span>
+      <span className="text-sm text-gray-400">({total} avaliações)</span>
+    </div>
+  )
+}
+
+// Get today in YYYY-MM-DD
+function today() {
+  return new Date().toISOString().split('T')[0]
+}
 
 export default function Profile() {
   const { id } = useParams()
   const { user } = useAppStore()
   const navigate = useNavigate()
+
   const [profile, setProfile] = useState(null)
   const [services, setServices] = useState([])
+  const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchProfile()
-  }, [id])
+  // Booking form state
+  const [selectedDate, setSelectedDate] = useState('')
+  const [selectedTime, setSelectedTime] = useState('')
+  const [duration, setDuration] = useState(2)
+  const [selectedService, setSelectedService] = useState(null)
+  const [address, setAddress]   = useState('')
+  const [notes, setNotes]       = useState('')
+  const [bookingError, setBookingError] = useState(null)
+
+  useEffect(() => { fetchProfile() }, [id])
 
   const fetchProfile = async () => {
-    const [{ data: prof }, { data: svc }] = await Promise.all([
+    const [{ data: prof }, { data: svc }, { data: rev }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
       supabase.from('services').select('*').eq('provider_id', id).eq('is_available', true),
+      supabase
+        .from('reviews')
+        .select('rating, comment, created_at, reviewer:reviewer_id(full_name)')
+        .eq('reviewed_id', id)
+        .order('created_at', { ascending: false })
+        .limit(5),
     ])
     setProfile(prof)
     setServices(svc || [])
+    setReviews(rev || [])
+    if (svc?.length) setSelectedService(svc[0].id)
     setLoading(false)
   }
 
-  const handleBook = (serviceId) => {
-    if (!user) {
-      navigate('/login')
-      return
-    }
-    navigate(`/booking?provider=${id}&service=${serviceId}`)
+  const totalPrice = () => {
+    const rate = profile?.hourly_rate || 0
+    return rate * duration
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Carregando...</div>
-  if (!profile) return <div className="min-h-screen flex items-center justify-center text-gray-400">Perfil não encontrado.</div>
+  const handleBook = () => {
+    if (!user) { navigate('/login'); return }
+    if (!selectedDate || !selectedTime) {
+      setBookingError('Escolhe a data e hora antes de agendar.')
+      return
+    }
+    const svcId = selectedService || (services[0]?.id ?? null)
+    navigate(
+      `/booking?provider=${id}` +
+      `&service=${svcId}` +
+      `&date=${selectedDate}` +
+      `&time=${selectedTime}` +
+      `&duration=${duration}` +
+      (address ? `&address=${encodeURIComponent(address)}` : '') +
+      (notes   ? `&notes=${encodeURIComponent(notes)}`   : '')
+    )
+  }
 
-  const roleLabel = { caregiver: 'Cuidador', nurse: 'Enfermeiro(a)', cleaner: 'Assistente de Limpeza', fisioterapia: 'Fisioterapeuta' }
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+      </div>
+    )
+  }
+  if (!profile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gray-50">
+        <p className="text-gray-500 text-lg">Perfil não encontrado.</p>
+        <Link to="/search" className="btn-primary">Voltar à pesquisa</Link>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* ── Nav ── */}
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <Link to="/" className="text-xl font-bold text-primary-600">CareConnect</Link>
-          <Link to="/search" className="text-gray-600 hover:text-gray-900">← Voltar</Link>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+          <Link to="/" className="flex items-center gap-2">
+            <Heart className="w-5 h-5 text-primary-600" fill="currentColor" />
+            <span className="text-lg font-bold text-gray-900">
+              Care<span className="text-primary-600">Connect</span>
+            </span>
+          </Link>
+          <Link
+            to="/search"
+            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 font-medium"
+          >
+            <ArrowLeft className="w-4 h-4" /> Voltar à pesquisa
+          </Link>
         </div>
       </nav>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Profile header */}
-        <div className="card mb-6">
-          <div className="flex flex-col md:flex-row gap-6">
-            <div className="w-24 h-24 rounded-full bg-primary-100 flex items-center justify-center text-4xl flex-shrink-0">
-              {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt={profile.full_name} className="w-24 h-24 rounded-full object-cover" />
-              ) : '👤'}
-            </div>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold text-gray-900">{profile.full_name}</h1>
-              <p className="text-primary-600 font-medium">{roleLabel[profile.role] || profile.role}</p>
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
 
-              <div className="flex flex-wrap gap-4 mt-3">
-                <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                  <span className="font-medium">{formatRating(profile.rating)}</span>
-                  <span className="text-gray-400 text-sm">({profile.total_reviews} avaliações)</span>
+          {/* ── Left: Provider info ── */}
+          <div className="lg:col-span-3 space-y-6">
+
+            {/* Profile card */}
+            <div className="card">
+              <div className="flex flex-col sm:flex-row gap-6">
+                {/* Avatar */}
+                <div className="flex-shrink-0">
+                  {profile.avatar_url ? (
+                    <img
+                      src={profile.avatar_url}
+                      alt={profile.full_name}
+                      className="w-28 h-28 rounded-2xl object-cover shadow-sm"
+                    />
+                  ) : (
+                    <div className="w-28 h-28 rounded-2xl bg-primary-100 text-primary-700 font-bold text-3xl
+                                    flex items-center justify-center shadow-sm">
+                      {profile.full_name?.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-1 text-gray-500">
-                  <MapPin className="w-4 h-4" />
-                  <span className="text-sm">{profile.city || 'Portugal'}</span>
-                </div>
-                {profile.is_verified && (
-                  <div className="flex items-center gap-1 text-care-green">
-                    <Shield className="w-4 h-4" />
-                    <span className="text-sm font-medium">Verificado</span>
+
+                <div className="flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h1 className="text-2xl font-extrabold text-gray-900">{profile.full_name}</h1>
+                      <span className={`${ROLE_COLOR[profile.role] || 'badge-gray'} mt-1`}>
+                        {ROLE_LABEL[profile.role] || profile.role}
+                      </span>
+                    </div>
+                    {profile.is_verified && (
+                      <div className="flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+                        <Shield className="w-3.5 h-3.5" />
+                        Verificado
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {profile.hourly_rate && (
-                <p className="mt-3 text-xl font-bold text-primary-600">
-                  {formatCurrency(profile.hourly_rate)}<span className="text-sm font-normal text-gray-500">/hora</span>
-                </p>
-              )}
-            </div>
-          </div>
-
-          {profile.bio && (
-            <div className="mt-6 pt-6 border-t border-gray-100">
-              <h2 className="font-semibold mb-2">Sobre mim</h2>
-              <p className="text-gray-600">{profile.bio}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Services */}
-        {services.length > 0 && (
-          <div className="card">
-            <h2 className="text-lg font-semibold mb-4">Serviços Disponíveis</h2>
-            <div className="space-y-4">
-              {services.map((svc) => (
-                <div key={svc.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-lg">
-                  <div>
-                    <h3 className="font-medium">{svc.title}</h3>
-                    {svc.description && <p className="text-sm text-gray-500 mt-1">{svc.description}</p>}
-                    <div className="flex items-center gap-1 text-sm text-gray-400 mt-1">
-                      <Clock className="w-3 h-3" />
-                      {svc.duration_hours}h
+                  <div className="mt-3 space-y-1.5">
+                    <StarRating rating={profile.rating || 0} total={profile.total_reviews || 0} />
+                    <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                      <MapPin className="w-4 h-4" />
+                      {profile.city || 'Portugal'}
                     </div>
                   </div>
+
+                  {profile.hourly_rate && (
+                    <div className="mt-4">
+                      <span className="text-3xl font-extrabold text-primary-600">
+                        {formatCurrency(profile.hourly_rate)}
+                      </span>
+                      <span className="text-gray-400 text-sm">/hora</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {profile.bio && (
+                <div className="mt-6 pt-5 border-t border-gray-100">
+                  <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Sobre mim</h2>
+                  <p className="text-gray-600 leading-relaxed">{profile.bio}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Services */}
+            {services.length > 0 && (
+              <div className="card">
+                <h2 className="text-lg font-bold text-gray-900 mb-4">Serviços disponíveis</h2>
+                <div className="space-y-3">
+                  {services.map((svc) => (
+                    <label
+                      key={svc.id}
+                      className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all
+                                  ${selectedService === svc.id ? 'border-primary-500 bg-primary-50' : 'border-gray-100 hover:border-gray-200'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="service"
+                          className="sr-only"
+                          checked={selectedService === svc.id}
+                          onChange={() => setSelectedService(svc.id)}
+                        />
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
+                                         ${selectedService === svc.id ? 'border-primary-500' : 'border-gray-300'}`}>
+                          {selectedService === svc.id && (
+                            <div className="w-2 h-2 rounded-full bg-primary-500" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-gray-900">{svc.title}</div>
+                          {svc.description && (
+                            <div className="text-sm text-gray-500 mt-0.5">{svc.description}</div>
+                          )}
+                          <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
+                            <Clock className="w-3 h-3" />
+                            Duração base: {svc.duration_hours}h
+                          </div>
+                        </div>
+                      </div>
+                      <span className="font-bold text-primary-600 text-sm whitespace-nowrap ml-4">
+                        {formatCurrency(svc.price_per_hour)}/h
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Reviews */}
+            {reviews.length > 0 && (
+              <div className="card">
+                <h2 className="text-lg font-bold text-gray-900 mb-4">Avaliações</h2>
+                <div className="space-y-4">
+                  {reviews.map((r, i) => (
+                    <div key={i} className="flex gap-3">
+                      <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 font-bold text-xs
+                                      flex items-center justify-center flex-shrink-0">
+                        {r.reviewer?.full_name?.[0] || '?'}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-800">
+                            {r.reviewer?.full_name || 'Cliente'}
+                          </span>
+                          <div className="flex">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} className={`w-3 h-3 ${n <= r.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'}`} />
+                            ))}
+                          </div>
+                        </div>
+                        {r.comment && (
+                          <p className="text-sm text-gray-600 mt-1">{r.comment}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Right: Booking calendar ── */}
+          <div className="lg:col-span-2">
+            <div className="card sticky top-24">
+              <div className="flex items-center gap-2 mb-5">
+                <CalendarDays className="w-5 h-5 text-primary-600" />
+                <h2 className="text-lg font-bold text-gray-900">Agendar serviço</h2>
+              </div>
+
+              <div className="space-y-4">
+                {/* Date */}
+                <div>
+                  <label className="input-label">Data *</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    min={today()}
+                    value={selectedDate}
+                    onChange={(e) => { setSelectedDate(e.target.value); setBookingError(null) }}
+                  />
+                </div>
+
+                {/* Time */}
+                <div>
+                  <label className="input-label">Hora de início *</label>
+                  <input
+                    type="time"
+                    className="input-field"
+                    value={selectedTime}
+                    onChange={(e) => { setSelectedTime(e.target.value); setBookingError(null) }}
+                  />
+                </div>
+
+                {/* Duration */}
+                <div>
+                  <label className="input-label">Duração (horas)</label>
                   <div className="flex items-center gap-3">
-                    <span className="font-semibold">{formatCurrency(svc.price_per_hour)}/h</span>
-                    <button onClick={() => handleBook(svc.id)} className="btn-primary text-sm flex items-center gap-1">
-                      <Calendar className="w-4 h-4" /> Agendar
-                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDuration((d) => Math.max(1, d - 1))}
+                      className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
+                                 hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
+                    >−</button>
+                    <span className="text-xl font-bold text-gray-900 w-8 text-center">{duration}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDuration((d) => Math.min(12, d + 1))}
+                      className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
+                                 hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
+                    >+</button>
+                    <span className="text-sm text-gray-400">hora{duration !== 1 ? 's' : ''}</span>
                   </div>
                 </div>
-              ))}
+
+                {/* Address */}
+                <div>
+                  <label className="input-label">Morada do serviço</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Rua, número, cidade..."
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="input-label">Notas adicionais</label>
+                  <textarea
+                    rows={3}
+                    className="input-field resize-none text-sm"
+                    placeholder="Informação especial para o profissional..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+
+                {/* Price summary */}
+                {profile.hourly_rate && (
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
+                    <div className="flex justify-between text-gray-600">
+                      <span>{formatCurrency(profile.hourly_rate)} × {duration}h</span>
+                      <span className="font-medium">{formatCurrency(totalPrice())}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-2 mt-2">
+                      <span>Total estimado</span>
+                      <span className="text-primary-600">{formatCurrency(totalPrice())}</span>
+                    </div>
+                  </div>
+                )}
+
+                {bookingError && (
+                  <p className="text-red-500 text-sm">{bookingError}</p>
+                )}
+
+                <button
+                  onClick={handleBook}
+                  className="btn-primary w-full text-base py-4"
+                >
+                  <CreditCard className="w-5 h-5" />
+                  Agendar e Pagar
+                </button>
+
+                {!user && (
+                  <p className="text-center text-xs text-gray-400">
+                    Necessitas de{' '}
+                    <Link to="/login" className="text-primary-600 font-semibold hover:underline">
+                      entrar
+                    </Link>
+                    {' '}para agendar.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
-        )}
-
-        {services.length === 0 && (
-          <div className="card text-center py-8 text-gray-400">
-            <p>Nenhum serviço disponível no momento.</p>
-            <button onClick={() => handleBook(null)} className="btn-primary mt-4">
-              Entrar em contacto
-            </button>
-          </div>
-        )}
+        </div>
       </main>
     </div>
   )

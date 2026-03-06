@@ -5,22 +5,25 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          900: '#0c4a6e',
+          50:  '#f0fdfa',
+          100: '#ccfbf1',
+          200: '#99f6e4',
+          300: '#5eead4',
+          400: '#2dd4bf',
+          500: '#14b8a6',
+          600: '#0d9488',
+          700: '#0f766e',
+          800: '#115e59',
+          900: '#134e4a',
         },
-        care: {
-          green: '#10b981',
-          teal: '#14b8a6',
-          warm: '#f97316',
-        }
       },
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-      }
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      borderRadius: {
+        '2xl': '1rem',
+        '3xl': '1.5rem',
+      },
     },
   },
   plugins: [],
