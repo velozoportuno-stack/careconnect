@@ -38,8 +38,8 @@ export default function Register() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  const tipoParam   = searchParams.get('tipo')
-  const initialRole = tipoParam === 'profissional' ? 'professional' : tipoParam === 'cliente' ? 'client' : null
+  const roleParam   = searchParams.get('role')
+  const initialRole = roleParam === 'professional' ? 'professional' : roleParam === 'client' ? 'client' : null
   const [step, setStep] = useState(initialRole ? 'form' : 'role')
   const [userType, setUserType] = useState(
     initialRole === 'professional' ? 'professional' : initialRole === 'client' ? 'client' : null
