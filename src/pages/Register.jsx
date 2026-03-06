@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { Heart, User, Briefcase, ArrowLeft, Camera, Upload } from 'lucide-react'
+import { Heart, User, Briefcase, ArrowLeft, Camera, Upload, MapPin } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 
@@ -11,13 +11,28 @@ const SERVICE_TYPES = [
   { value: 'cleaner',   label: 'Assistente de Limpeza',  icon: '🧹' },
 ]
 
+const CITIES = {
+  PT: [
+    'Viana do Castelo', 'Braga', 'Porto', 'Aveiro', 'Coimbra',
+    'Lisboa', 'Setúbal', 'Faro', 'Évora', 'Viseu',
+  ],
+  BR: [
+    'São Paulo', 'Rio de Janeiro', 'Belo Horizonte', 'Salvador', 'Fortaleza',
+    'Curitiba', 'Manaus', 'Recife', 'Porto Alegre', 'Belém',
+  ],
+}
+
+const COUNTRIES = [
+  { value: 'PT', label: '🇵🇹 Portugal' },
+  { value: 'BR', label: '🇧🇷 Brasil' },
+]
+
 export default function Register() {
   const { signUp } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  // Step: 'role' | 'form'
-  const initialRole = searchParams.get('role') // 'client' or 'professional'
+  const initialRole = searchParams.get('role')
   const [step, setStep] = useState(initialRole ? 'form' : 'role')
   const [userType, setUserType] = useState(
     initialRole === 'professional' ? 'professional' : initialRole === 'client' ? 'client' : null
@@ -25,9 +40,10 @@ export default function Register() {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(null)
+  const [country, setCountry] = useState('PT')
   const avatarFileRef = useRef(null)
 
-  const { register, handleSubmit, formState: { errors }, watch } = useForm()
+  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm()
   const selectedServiceType = watch('service_type')
 
   function handleRoleSelect(type) {
@@ -35,12 +51,14 @@ export default function Register() {
     setStep('form')
   }
 
+  function handleCountryChange(e) {
+    setCountry(e.target.value)
+    setValue('city', '') // reset city when country changes
+  }
+
   function handleAvatarChange(e) {
     const file = e.target.files?.[0]
-    if (file) {
-      const url = URL.createObjectURL(file)
-      setAvatarPreview(url)
-    }
+    if (file) setAvatarPreview(URL.createObjectURL(file))
   }
 
   async function uploadAvatar(userId) {
@@ -48,9 +66,7 @@ export default function Register() {
     if (!file) return null
     const ext = file.name.split('.').pop()
     const path = `${userId}.${ext}`
-    const { error } = await supabase.storage
-      .from('avatars')
-      .upload(path, file, { upsert: true })
+    const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
     if (error) return null
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
     return data.publicUrl
@@ -65,6 +81,8 @@ export default function Register() {
       full_name:   values.full_name,
       phone:       values.phone,
       city:        values.city,
+      country:     values.country,
+      location:    values.address || null,
       role,
       ...(userType === 'professional' && {
         hourly_rate: parseFloat(values.hourly_rate) || null,
@@ -75,12 +93,11 @@ export default function Register() {
     const { data, error: signUpError } = await signUp(values.email, values.password, userData)
 
     if (signUpError) {
-      setError(signUpError.message || 'Erro ao criar conta. Tente novamente.')
+      setError(signUpError.message || 'Erro ao criar conta. Tenta novamente.')
       setLoading(false)
       return
     }
 
-    // Upload avatar if professional selected one
     if (userType === 'professional' && data?.user && avatarFileRef.current?.files?.[0]) {
       const avatarUrl = await uploadAvatar(data.user.id)
       if (avatarUrl) {
@@ -104,17 +121,15 @@ export default function Register() {
         </Link>
 
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-extrabold text-gray-900 text-center mb-2">
-            Cria a tua conta
-          </h1>
+          <h1 className="text-3xl font-extrabold text-gray-900 text-center mb-2">Cria a tua conta</h1>
           <p className="text-gray-500 text-center mb-8">Como vais usar o CareConnect?</p>
 
           <div className="grid grid-cols-1 gap-4">
             <button
               onClick={() => handleRoleSelect('client')}
               className="group flex items-center gap-5 p-6 bg-white border-2 border-gray-100
-                         rounded-2xl hover:border-primary-400 hover:shadow-md
-                         active:scale-95 transition-all text-left"
+                         rounded-2xl hover:border-primary-400 hover:shadow-md active:scale-95
+                         transition-all text-left"
             >
               <div className="w-14 h-14 rounded-2xl bg-primary-50 flex items-center justify-center flex-shrink-0">
                 <User className="w-7 h-7 text-primary-600" />
@@ -130,8 +145,8 @@ export default function Register() {
             <button
               onClick={() => handleRoleSelect('professional')}
               className="group flex items-center gap-5 p-6 bg-white border-2 border-gray-100
-                         rounded-2xl hover:border-primary-400 hover:shadow-md
-                         active:scale-95 transition-all text-left"
+                         rounded-2xl hover:border-primary-400 hover:shadow-md active:scale-95
+                         transition-all text-left"
             >
               <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center flex-shrink-0">
                 <Briefcase className="w-7 h-7 text-amber-600" />
@@ -147,9 +162,7 @@ export default function Register() {
 
           <p className="text-center text-sm text-gray-500 mt-6">
             Já tens conta?{' '}
-            <Link to="/login" className="text-primary-600 font-semibold hover:underline">
-              Entrar
-            </Link>
+            <Link to="/login" className="text-primary-600 font-semibold hover:underline">Entrar</Link>
           </p>
         </div>
       </div>
@@ -167,8 +180,8 @@ export default function Register() {
         <div className="flex items-center gap-3 mb-8">
           <button
             onClick={() => setStep('role')}
-            className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center
-                       hover:bg-gray-50 transition-colors"
+            className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center
+                       justify-center hover:bg-gray-50 transition-colors"
           >
             <ArrowLeft className="w-4 h-4 text-gray-600" />
           </button>
@@ -177,14 +190,16 @@ export default function Register() {
               {isClient ? 'Registo de Cliente' : 'Registo de Profissional'}
             </h1>
             <p className="text-sm text-gray-500">
-              {isClient ? 'Cria a tua conta e encontra o profissional certo.' : 'Apresenta-te e começa a receber clientes.'}
+              {isClient
+                ? 'Cria a tua conta e encontra o profissional certo.'
+                : 'Apresenta-te e começa a receber clientes.'}
             </p>
           </div>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
-          {/* Avatar upload (professionals only) */}
+          {/* Avatar upload — professionals only */}
           {!isClient && (
             <div className="card flex flex-col items-center gap-3 py-8">
               <div
@@ -223,7 +238,7 @@ export default function Register() {
               </div>
             )}
 
-            {/* Common fields */}
+            {/* Name */}
             <div>
               <label className="input-label">Nome completo *</label>
               <input
@@ -235,6 +250,7 @@ export default function Register() {
               {errors.full_name && <p className="text-red-500 text-xs mt-1">{errors.full_name.message}</p>}
             </div>
 
+            {/* Email */}
             <div>
               <label className="input-label">Email *</label>
               <input
@@ -246,6 +262,7 @@ export default function Register() {
               {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
             </div>
 
+            {/* Password */}
             <div>
               <label className="input-label">Password *</label>
               <input
@@ -260,27 +277,66 @@ export default function Register() {
               {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
             </div>
 
+            {/* Phone */}
+            <div>
+              <label className="input-label">Telefone *</label>
+              <input
+                type="tel"
+                className="input-field"
+                placeholder="+351 912 345 678"
+                {...register('phone', { required: 'Telefone obrigatório' })}
+              />
+              {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
+            </div>
+
+            {/* Country + City row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="input-label">Telefone *</label>
-                <input
-                  type="tel"
+                <label className="input-label">País *</label>
+                <select
                   className="input-field"
-                  placeholder="+351 912 345 678"
-                  {...register('phone', { required: 'Telefone obrigatório' })}
-                />
-                {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
+                  {...register('country', { required: 'País obrigatório' })}
+                  onChange={handleCountryChange}
+                  defaultValue="PT"
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                {errors.country && <p className="text-red-500 text-xs mt-1">{errors.country.message}</p>}
               </div>
+
               <div>
                 <label className="input-label">Cidade *</label>
-                <input
-                  type="text"
+                <select
                   className="input-field"
-                  placeholder="Lisboa"
                   {...register('city', { required: 'Cidade obrigatória' })}
-                />
+                  defaultValue=""
+                >
+                  <option value="" disabled>Seleciona...</option>
+                  {(CITIES[country] || CITIES.PT).map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </select>
                 {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city.message}</p>}
               </div>
+            </div>
+
+            {/* Address */}
+            <div>
+              <label className="input-label">
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-gray-500" />
+                  Morada completa
+                </span>
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Rua das Flores, 42, 3ºDto, 1100-200 Lisboa"
+                {...register('address')}
+              />
+              <p className="text-xs text-gray-400 mt-1">Usada para calcular distâncias e agendar visitas.</p>
             </div>
 
             {/* Professional-only fields */}
@@ -321,7 +377,10 @@ export default function Register() {
                     min="5"
                     className="input-field"
                     placeholder="15.00"
-                    {...register('hourly_rate', { required: 'Preço por hora obrigatório', min: { value: 1, message: 'Preço inválido' } })}
+                    {...register('hourly_rate', {
+                      required: 'Preço por hora obrigatório',
+                      min: { value: 1, message: 'Preço inválido' },
+                    })}
                   />
                   {errors.hourly_rate && <p className="text-red-500 text-xs mt-1">{errors.hourly_rate.message}</p>}
                 </div>
@@ -343,14 +402,16 @@ export default function Register() {
               disabled={loading}
               className="btn-primary w-full text-base"
             >
-              {loading ? 'A criar conta...' : isClient ? 'Criar conta e procurar serviços' : 'Criar conta e começar a trabalhar'}
+              {loading
+                ? 'A criar conta...'
+                : isClient
+                  ? 'Criar conta e procurar serviços'
+                  : 'Criar conta e começar a trabalhar'}
             </button>
 
             <p className="text-center text-sm text-gray-500">
               Já tens conta?{' '}
-              <Link to="/login" className="text-primary-600 font-semibold hover:underline">
-                Entrar
-              </Link>
+              <Link to="/login" className="text-primary-600 font-semibold hover:underline">Entrar</Link>
             </p>
           </div>
         </form>
