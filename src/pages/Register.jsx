@@ -1,9 +1,28 @@
 import { useState, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { Heart, User, Briefcase, ArrowLeft, Camera, Upload, MapPin } from 'lucide-react'
+import { Heart, User, Briefcase, ArrowLeft, Camera, Upload, MapPin, Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
+
+// Traduz mensagens de erro do Supabase para português
+function translateError(message) {
+  if (!message) return 'Erro desconhecido. Tenta novamente.'
+  const m = message.toLowerCase()
+  if (m.includes('user already registered') || m.includes('already been registered') || m.includes('email already'))
+    return '__EMAIL_EXISTS__'
+  if (m.includes('password should be at least'))
+    return 'A password deve ter pelo menos 6 caracteres.'
+  if (m.includes('invalid email'))
+    return 'Endereço de email inválido.'
+  if (m.includes('database error'))
+    return 'Erro ao guardar os dados. Tenta novamente em instantes.'
+  if (m.includes('network') || m.includes('fetch'))
+    return 'Sem ligação à internet. Verifica a tua rede e tenta novamente.'
+  if (m.includes('rate limit') || m.includes('too many'))
+    return 'Demasiadas tentativas. Aguarda alguns minutos e tenta novamente.'
+  return 'Erro ao criar conta. Tenta novamente.'
+}
 
 const SERVICE_TYPES = [
   { value: 'caregiver', label: 'Cuidador(a) de Idosos', icon: '🧓' },
@@ -93,7 +112,8 @@ export default function Register() {
     const { data, error: signUpError } = await signUp(values.email, values.password, userData)
 
     if (signUpError) {
-      setError(signUpError.message || 'Erro ao criar conta. Tenta novamente.')
+      const translated = translateError(signUpError.message)
+      setError(translated)
       setLoading(false)
       return
     }
@@ -232,11 +252,25 @@ export default function Register() {
           )}
 
           <div className="card space-y-5">
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm">
-                {error}
+            {error === '__EMAIL_EXISTS__' ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-semibold text-amber-800">Este email já tem uma conta.</p>
+                  <p className="text-amber-700 mt-0.5">
+                    <Link to="/login" className="underline font-semibold hover:text-amber-900">
+                      Clica aqui para Entrar
+                    </Link>
+                    {' '}ou usa outro email para te registar.
+                  </p>
+                </div>
               </div>
-            )}
+            ) : error ? (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            ) : null}
 
             {/* Name */}
             <div>
@@ -400,13 +434,16 @@ export default function Register() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full text-base"
+              className="btn-primary w-full text-base relative"
             >
-              {loading
-                ? 'A criar conta...'
-                : isClient
-                  ? 'Criar conta e procurar serviços'
-                  : 'Criar conta e começar a trabalhar'}
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  A criar conta...
+                </span>
+              ) : isClient
+                ? 'Criar conta e procurar serviços'
+                : 'Criar conta e começar a trabalhar'}
             </button>
 
             <p className="text-center text-sm text-gray-500">
