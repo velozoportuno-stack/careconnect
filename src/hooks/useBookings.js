@@ -16,7 +16,7 @@ export const useBookings = () => {
         .select(`
           *,
           service:services(*),
-          provider:profiles!bookings_provider_id_fkey(id, full_name, avatar_url, rating),
+          provider:profiles!bookings_provider_id_fkey(id, full_name, avatar_url, rating, service_type),
           client:profiles!bookings_client_id_fkey(id, full_name, avatar_url)
         `)
         .or(`client_id.eq.${user.id},provider_id.eq.${user.id}`)

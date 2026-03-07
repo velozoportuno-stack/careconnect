@@ -38,8 +38,7 @@ function completionPercent(profile) {
 }
 
 export default function EditProfile() {
-  const { user, userRole, activeRole } = useAppStore()
-  const effectiveRole = activeRole || userRole
+  const { user, userRole } = useAppStore()
   const navigate = useNavigate()
   const avatarRef = useRef(null)
 
@@ -155,15 +154,15 @@ export default function EditProfile() {
 
       // Base fields that always exist
       const baseUpdate = {
-        full_name:   profile.full_name,
-        bio:         profile.bio,
-        hourly_rate: profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
-        role:        profile.role,
-        city:        profile.city,
-        country:     profile.country || 'PT',
-        location:    profile.location,
-        avatar_url:  avatarUrl,
-        updated_at:  new Date().toISOString(),
+        full_name:    profile.full_name,
+        bio:          profile.bio,
+        hourly_rate:  profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
+        service_type: profile.service_type ?? null,
+        city:         profile.city,
+        country:      profile.country || 'PT',
+        location:     profile.location,
+        avatar_url:   avatarUrl,
+        updated_at:   new Date().toISOString(),
       }
 
       // Try saving with bank account fields first
@@ -215,7 +214,7 @@ export default function EditProfile() {
     )
   }
 
-  const isProvider = effectiveRole && effectiveRole !== 'client' && effectiveRole !== 'admin'
+  const isProvider = userRole === 'professional'
   const pct = isProvider ? completionPercent(profile) : null
   const bankMissing = isProvider && !profile?.bank_account_value
 
@@ -344,15 +343,15 @@ export default function EditProfile() {
                         <label
                           key={t.value}
                           className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 cursor-pointer transition-all
-                                      ${profile?.role === t.value
+                                      ${profile?.service_type === t.value
                                         ? 'border-primary-500 bg-primary-50'
                                         : 'border-gray-200 bg-white hover:border-gray-300'}`}
                         >
                           <input
                             type="radio"
                             className="sr-only"
-                            checked={profile?.role === t.value}
-                            onChange={() => setProfile((p) => ({ ...p, role: t.value }))}
+                            checked={profile?.service_type === t.value}
+                            onChange={() => setProfile((p) => ({ ...p, service_type: t.value }))}
                           />
                           <span className="text-2xl">{t.icon}</span>
                           <span className="text-xs font-medium text-gray-700 text-center leading-tight">{t.label}</span>
@@ -362,7 +361,7 @@ export default function EditProfile() {
                   </div>
 
                   {/* Hourly rate + daily rate side by side for care roles */}
-                  <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile?.role) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile?.service_type) ? 'grid-cols-2' : 'grid-cols-1'}`}>
                     <div>
                       <label className="input-label">⏱ Valor por hora (€)</label>
                       <input
@@ -374,7 +373,7 @@ export default function EditProfile() {
                         onChange={(e) => setProfile((p) => ({ ...p, hourly_rate: e.target.value }))}
                       />
                     </div>
-                    {['caregiver', 'nurse'].includes(profile?.role) && (
+                    {['caregiver', 'nurse'].includes(profile?.service_type) && (
                       <div>
                         <label className="input-label">📅 Valor por dia (€)</label>
                         <input
@@ -402,7 +401,7 @@ export default function EditProfile() {
                   </div>
 
                   {/* Cleaning-specific fields */}
-                  {profile?.role === 'cleaner' && (
+                  {profile?.service_type === 'cleaner' && (
                     <>
                       <div>
                         <label className="input-label">Tipos de limpeza oferecida</label>

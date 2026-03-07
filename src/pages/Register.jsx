@@ -6,7 +6,6 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { COUNTRIES, CITIES } from '../utils/locations'
 import { CLEANING_TYPES } from '../utils/constants'
-import { useAppStore } from '../store/appStore'
 import Navbar from '../components/Navbar'
 
 // Traduz mensagens de erro do Supabase para português
@@ -37,25 +36,14 @@ const SERVICE_TYPES = [
 
 export default function Register() {
   const { signUp } = useAuth()
-  const { user, userRole, setSecondaryRole, setActiveRole } = useAppStore()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  // ?add_role=professional → logged-in client wants to add a professional profile
-  const addRoleParam = searchParams.get('add_role')
-  const isAddingRole = !!addRoleParam && !!user
-
   const roleParam   = searchParams.get('role')
-  const initialRole = isAddingRole ? 'professional'
-    : roleParam === 'professional' ? 'professional'
-    : roleParam === 'client' ? 'client'
-    : null
+  const initialRole = roleParam === 'professional' ? 'professional' : roleParam === 'client' ? 'client' : null
   const [step, setStep] = useState(initialRole ? 'form' : 'role')
   const [userType, setUserType] = useState(
-    isAddingRole ? 'professional'
-    : initialRole === 'professional' ? 'professional'
-    : initialRole === 'client' ? 'client'
-    : null
+    initialRole === 'professional' ? 'professional' : initialRole === 'client' ? 'client' : null
   )
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -64,7 +52,9 @@ export default function Register() {
   const [cleaningTypesSelected, setCleaningTypesSelected] = useState([])
   const avatarFileRef = useRef(null)
 
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm()
+  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm({
+    defaultValues: { country: 'PT' },
+  })
   const selectedServiceType = watch('service_type')
 
   function handleRoleSelect(type) {
@@ -73,8 +63,10 @@ export default function Register() {
   }
 
   function handleCountryChange(e) {
-    setCountry(e.target.value)
-    setValue('city', '') // reset city when country changes
+    const val = e.target.value
+    setCountry(val)
+    setValue('country', val)   // keep react-hook-form in sync
+    setValue('city', '')       // reset city when country changes
   }
 
   function handleAvatarChange(e) {
@@ -97,81 +89,47 @@ export default function Register() {
     setLoading(true)
     setError(null)
 
-    // ── Mode: add professional role to existing account ──
-    if (isAddingRole) {
-      const profRole = values.service_type
-      const updates = {
-        secondary_role: profRole,
-        hourly_rate:    parseFloat(values.hourly_rate) || null,
-        bio:            values.bio || null,
-        ...(profRole === 'nurse' && {
-          nursing_license:         values.nursing_license || null,
-          nursing_license_country: values.country || null,
-        }),
-        ...(profRole === 'cleaner' && {
-          cleaning_types:       cleaningTypesSelected.length ? cleaningTypesSelected : null,
-          cleaning_description: values.cleaning_description || null,
-        }),
-      }
-      const { error: updateErr } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
+    // role is always 'client' or 'professional'.
+    // service_type holds the specific professional sub-type.
+    const isProfessional = userType === 'professional'
+    const role = isProfessional ? 'professional' : 'client'
 
-      if (updateErr) {
-        setError('Erro ao guardar o perfil profissional. Tenta novamente.')
-        setLoading(false)
-        return
-      }
+    // values.country may be stale if the user changed the country select
+    // (because we override RHF's onChange); use the local state as source of truth.
+    const resolvedCountry = country || values.country || 'PT'
 
-      if (avatarFileRef.current?.files?.[0]) {
-        const avatarUrl = await uploadAvatar(user.id)
-        if (avatarUrl) {
-          await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', user.id)
-        }
-      }
-
-      // Update store so switcher appears immediately
-      setSecondaryRole(profRole)
-      setActiveRole(profRole)
-      setLoading(false)
-      navigate('/dashboard')
-      return
-    }
-
-    // ── Normal registration ──
-    const role = userType === 'client' ? 'client' : values.service_type
     const userData = {
-      full_name:   values.full_name,
-      phone:       values.phone,
-      city:        values.city,
-      country:     values.country,
-      location:    values.address || null,
+      full_name: values.full_name,
+      phone:     values.phone,
+      city:      values.city,
+      country:   resolvedCountry,
+      location:  values.address || null,
       role,
-      ...(userType === 'professional' && {
-        hourly_rate: parseFloat(values.hourly_rate) || null,
-        bio:         values.bio || null,
+      ...(isProfessional && {
+        service_type: values.service_type,
+        hourly_rate:  parseFloat(values.hourly_rate) || null,
+        bio:          values.bio || null,
       }),
       ...(values.service_type === 'nurse' && {
         nursing_license:         values.nursing_license || null,
-        nursing_license_country: values.country || null,
+        nursing_license_country: resolvedCountry,
       }),
       ...(values.service_type === 'cleaner' && {
-        cleaning_types:        cleaningTypesSelected.length ? cleaningTypesSelected : null,
-        cleaning_description:  values.cleaning_description || null,
+        cleaning_types:       cleaningTypesSelected.length ? cleaningTypesSelected : null,
+        cleaning_description: values.cleaning_description || null,
       }),
     }
 
     const { data, error: signUpError } = await signUp(values.email, values.password, userData)
 
     if (signUpError) {
-      const translated = translateError(signUpError.message)
-      setError(translated)
+      setError(translateError(signUpError.message))
       setLoading(false)
       return
     }
 
-    if (userType === 'professional' && data?.user && avatarFileRef.current?.files?.[0]) {
+    // Upload avatar for professionals after account is created
+    if (isProfessional && data?.user && avatarFileRef.current?.files?.[0]) {
       const avatarUrl = await uploadAvatar(data.user.id)
       if (avatarUrl) {
         await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', data.user.id)
@@ -179,6 +137,7 @@ export default function Register() {
     }
 
     setLoading(false)
+    // Both go to /dashboard — Dashboard renders provider or client view based on role
     navigate('/dashboard')
   }
 
@@ -410,7 +369,6 @@ export default function Register() {
                   className="input-field"
                   {...register('country', { required: 'País obrigatório' })}
                   onChange={handleCountryChange}
-                  defaultValue="PT"
                 >
                   {COUNTRIES.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
