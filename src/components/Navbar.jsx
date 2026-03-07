@@ -98,10 +98,12 @@ export default function Navbar() {
       {/* Mobile menu */}
       {mobileOpen && (
         <div className="sm:hidden border-t border-gray-100 bg-white px-4 py-4 flex flex-col gap-3">
-          <Link to="/" onClick={() => setMobileOpen(false)}
-            className="text-sm font-medium text-gray-700 py-2">
-            Início
-          </Link>
+          {!user && (
+            <Link to="/" onClick={() => setMobileOpen(false)}
+              className="text-sm font-medium text-gray-700 py-2">
+              Início
+            </Link>
+          )}
           <Link to="/search" onClick={() => setMobileOpen(false)}
             className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2">
             <Search className="w-4 h-4" /> Pesquisar

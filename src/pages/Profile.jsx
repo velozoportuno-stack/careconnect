@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock } from 'lucide-react'
+import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, Hash } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import AvailabilityCalendar from '../components/availability/AvailabilityCalendar'
 import { supabase } from '../lib/supabase'
@@ -201,6 +201,12 @@ export default function Profile() {
                       <MapPin className="w-4 h-4" />
                       {profile.city || 'Portugal'}
                     </div>
+                    {profile.professional_id_number && (
+                      <div className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 text-xs font-semibold px-2.5 py-1 rounded-full">
+                        <Hash className="w-3 h-3" />
+                        O seu ID: {profile.professional_id_number}
+                      </div>
+                    )}
                   </div>
 
                   {(profile.hourly_rate || profile.daily_rate) && (

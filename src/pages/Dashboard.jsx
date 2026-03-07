@@ -1,20 +1,78 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import {
-  Heart, CalendarDays, CheckCircle2, Clock, MapPin, LogOut,
+  CalendarDays, CheckCircle2, Clock, MapPin,
   Search, ChevronDown, ChevronUp, Plus, Briefcase, Navigation,
-  Settings, PlusCircle, Star,
+  Settings, PlusCircle, Star, CheckCheck, X, AlertTriangle,
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
 import { useBookings } from '../hooks/useBookings'
+import { supabase } from '../lib/supabase'
 import { formatDate, formatCurrency } from '../utils/formatters'
 import ClientTrackingView from '../components/maps/ClientTrackingView'
 import ProviderLocationShare from '../components/maps/ProviderLocationShare'
 import MedicationAlarms from '../components/dashboard/MedicationAlarms'
 import AddHoursModal from '../components/dashboard/AddHoursModal'
 import ServiceManager from '../components/dashboard/ServiceManager'
+
+/* ── Finish Service Confirmation Modal ── */
+function FinishServiceModal({ booking, onCancel, onConfirm, loading }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-6 h-6 text-orange-500" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Finalizar Serviço</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Tens a certeza que queres finalizar o serviço? O pagamento será libertado para a tua conta.
+            </p>
+          </div>
+        </div>
+
+        {booking && (
+          <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600">
+            <p className="font-semibold text-gray-800">
+              {booking.service?.title || 'Serviço agendado'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Cliente: {booking.client?.full_name} · {formatDate(booking.scheduled_date)}
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold
+                       text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <X className="w-4 h-4 inline mr-1" />
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white
+                       text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            ) : (
+              <CheckCheck className="w-4 h-4" />
+            )}
+            Confirmar Finalização
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const STATUS_LABELS = {
   pending:     { label: 'Pendente',       css: 'status-pending' },
@@ -48,7 +106,7 @@ function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = '
   )
 }
 
-function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh }) {
+function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService }) {
   const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
   const hasTracking = TRACKING_STATUSES.has(booking.status)
   const isProvider  = userRole === 'professional'
@@ -146,19 +204,31 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
             </div>
           )}
 
-          {/* Action buttons for client on active bookings */}
-          {!isProvider && isActive && (
-            <div className="mt-3">
-              <button
-                onClick={(e) => { e.stopPropagation(); onAddHours(booking) }}
-                className="flex items-center gap-1.5 text-xs font-semibold text-primary-600
-                           bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                Acrescentar horas
-              </button>
+          {/* Action buttons */}
+          {(!isProvider && isActive) || (isProvider && booking.status === 'in_progress') ? (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              {!isProvider && isActive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onAddHours(booking) }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-primary-600
+                             bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  Acrescentar horas
+                </button>
+              )}
+              {isProvider && booking.status === 'in_progress' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onFinishService(booking) }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white
+                             bg-orange-500 hover:bg-orange-600 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  Finalizar Serviço
+                </button>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
 
         {hasTracking && (
@@ -195,11 +265,68 @@ export default function Dashboard() {
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
-  const [expandedId, setExpandedId]         = useState(null)
-  const [filter, setFilter]                 = useState('all')
+  const [expandedId, setExpandedId]           = useState(null)
+  const [filter, setFilter]                   = useState('all')
   const [addHoursBooking, setAddHoursBooking] = useState(null)
+  const [finishBooking, setFinishBooking]     = useState(null)
+  const [finishLoading, setFinishLoading]     = useState(false)
+  const [successMsg, setSuccessMsg]           = useState(null)
+  const { addNotification } = useAppStore()
 
   useEffect(() => { fetchBookings() }, [])
+
+  // Client: subscribe to booking completions via Supabase Realtime
+  useEffect(() => {
+    if (!user || isProvider) return
+    const channel = supabase
+      .channel(`client-bookings-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'bookings',
+          filter: `client_id=eq.${user.id}`,
+        },
+        (payload) => {
+          if (payload.new?.status === 'completed') {
+            addNotification({
+              id: Date.now(),
+              message: 'O seu serviço foi finalizado com sucesso! Obrigado por usar o CareConnect.',
+              type: 'success',
+            })
+            fetchBookings()
+          }
+        }
+      )
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [user, isProvider])
+
+  const handleFinishService = useCallback(async () => {
+    if (!finishBooking) return
+    setFinishLoading(true)
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('bookings')
+      .update({
+        status: 'completed',
+        payment_status: 'released',
+        completed_at: now,
+      })
+      .eq('id', finishBooking.id)
+
+    setFinishLoading(false)
+    setFinishBooking(null)
+
+    if (error) {
+      setSuccessMsg({ type: 'error', text: 'Erro ao finalizar o serviço. Tenta novamente.' })
+    } else {
+      setSuccessMsg({ type: 'success', text: 'Serviço finalizado com sucesso! O pagamento será processado em breve.' })
+      fetchBookings()
+    }
+    setTimeout(() => setSuccessMsg(null), 6000)
+  }, [finishBooking, fetchBookings])
 
   const handleSignOut = async () => {
     await signOut()
@@ -366,6 +493,7 @@ export default function Dashboard() {
                   onToggle={(id) => setExpandedId((prev) => (prev === id ? null : id))}
                   onAddHours={(b) => setAddHoursBooking(b)}
                   onRefresh={fetchBookings}
+                  onFinishService={(b) => setFinishBooking(b)}
                 />
               ))}
             </div>
@@ -380,6 +508,32 @@ export default function Dashboard() {
           onClose={() => setAddHoursBooking(null)}
           onSuccess={fetchBookings}
         />
+      )}
+
+      {/* Finish Service Modal */}
+      {finishBooking && (
+        <FinishServiceModal
+          booking={finishBooking}
+          onCancel={() => setFinishBooking(null)}
+          onConfirm={handleFinishService}
+          loading={finishLoading}
+        />
+      )}
+
+      {/* Success / Error toast */}
+      {successMsg && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-4
+                         rounded-2xl shadow-xl text-sm font-semibold max-w-sm w-full
+                         ${successMsg.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-500 text-white'}`}>
+          {successMsg.type === 'success'
+            ? <CheckCheck className="w-5 h-5 flex-shrink-0" />
+            : <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+          }
+          <span>{successMsg.text}</span>
+          <button onClick={() => setSuccessMsg(null)} className="ml-auto opacity-80 hover:opacity-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       )}
     </div>
   )

@@ -5,10 +5,9 @@ import { Heart, User, Briefcase, ArrowLeft, Camera, Upload, MapPin, Loader2, Ale
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { COUNTRIES, CITIES } from '../utils/locations'
-import { CLEANING_TYPES } from '../utils/constants'
+import { CLEANING_TYPES, SERVICE_TYPES, LICENSE_REQUIRED, getLicenseLabel } from '../utils/constants'
 import Navbar from '../components/Navbar'
 
-// Traduz mensagens de erro do Supabase para português
 function translateError(message) {
   if (!message) return 'Erro desconhecido. Tenta novamente.'
   const m = message.toLowerCase()
@@ -26,13 +25,6 @@ function translateError(message) {
     return 'Demasiadas tentativas. Aguarda alguns minutos e tenta novamente.'
   return 'Erro ao criar conta. Tenta novamente.'
 }
-
-const SERVICE_TYPES = [
-  { value: 'caregiver', label: 'Cuidador(a) de Idosos', icon: '🧓' },
-  { value: 'nurse',     label: 'Enfermeiro(a)',          icon: '🩺' },
-  { value: 'cleaner',   label: 'Assistente de Limpeza',  icon: '🧹' },
-]
-
 
 export default function Register() {
   const { signUp } = useAuth()
@@ -56,6 +48,9 @@ export default function Register() {
     defaultValues: { country: 'PT' },
   })
   const selectedServiceType = watch('service_type')
+  const needsLicense = LICENSE_REQUIRED.has(selectedServiceType)
+  const isCleanerType = selectedServiceType === 'cleaner'
+  const isOtherType = selectedServiceType === 'other'
 
   function handleRoleSelect(type) {
     setUserType(type)
@@ -65,8 +60,8 @@ export default function Register() {
   function handleCountryChange(e) {
     const val = e.target.value
     setCountry(val)
-    setValue('country', val)   // keep react-hook-form in sync
-    setValue('city', '')       // reset city when country changes
+    setValue('country', val)
+    setValue('city', '')
   }
 
   function handleAvatarChange(e) {
@@ -89,13 +84,8 @@ export default function Register() {
     setLoading(true)
     setError(null)
 
-    // role is always 'client' or 'professional'.
-    // service_type holds the specific professional sub-type.
     const isProfessional = userType === 'professional'
     const role = isProfessional ? 'professional' : 'client'
-
-    // values.country may be stale if the user changed the country select
-    // (because we override RHF's onChange); use the local state as source of truth.
     const resolvedCountry = country || values.country || 'PT'
 
     const userData = {
@@ -109,14 +99,17 @@ export default function Register() {
         service_type: values.service_type,
         hourly_rate:  parseFloat(values.hourly_rate) || null,
         bio:          values.bio || null,
-      }),
-      ...(values.service_type === 'nurse' && {
-        nursing_license:         values.nursing_license || null,
-        nursing_license_country: resolvedCountry,
-      }),
-      ...(values.service_type === 'cleaner' && {
-        cleaning_types:       cleaningTypesSelected.length ? cleaningTypesSelected : null,
-        cleaning_description: values.cleaning_description || null,
+        ...(isOtherType && values.custom_profession && {
+          custom_profession: values.custom_profession,
+        }),
+        ...(needsLicense && {
+          nursing_license:         values.nursing_license || null,
+          nursing_license_country: resolvedCountry,
+        }),
+        ...(isCleanerType && {
+          cleaning_types:       cleaningTypesSelected.length ? cleaningTypesSelected : null,
+          cleaning_description: values.cleaning_description || null,
+        }),
       }),
     }
 
@@ -128,7 +121,6 @@ export default function Register() {
       return
     }
 
-    // Upload avatar for professionals after account is created
     if (isProfessional && data?.user && avatarFileRef.current?.files?.[0]) {
       const avatarUrl = await uploadAvatar(data.user.id)
       if (avatarUrl) {
@@ -137,7 +129,6 @@ export default function Register() {
     }
 
     setLoading(false)
-    // Both go to /dashboard — Dashboard renders provider or client view based on role
     navigate('/dashboard')
   }
 
@@ -147,7 +138,6 @@ export default function Register() {
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <Navbar />
         <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
-
         <div className="w-full max-w-md">
           <h1 className="text-3xl font-extrabold text-gray-900 text-center mb-2">Cria a tua conta</h1>
           <p className="text-gray-500 text-center mb-8">Como vais usar o CareConnect?</p>
@@ -182,13 +172,12 @@ export default function Register() {
               <div>
                 <div className="font-bold text-gray-900 text-lg">Sou Profissional</div>
                 <div className="text-sm text-gray-500 mt-0.5">
-                  Ofereço serviços de cuidado e quero receber clientes pela plataforma.
+                  Ofereço serviços e quero receber clientes pela plataforma.
                 </div>
               </div>
             </button>
           </div>
 
-          {/* Social login on role-choice screen */}
           <div className="mt-8">
             <div className="flex items-center gap-3 mb-4">
               <div className="flex-1 h-px bg-gray-200" />
@@ -413,45 +402,57 @@ export default function Register() {
             {/* Professional-only fields */}
             {!isClient && (
               <>
+                {/* Service type — dropdown with optgroups */}
                 <div>
-                  <label className="input-label">Tipo de serviço *</label>
-                  <div className="grid grid-cols-3 gap-2 mt-1">
-                    {SERVICE_TYPES.map((t) => (
-                      <label
-                        key={t.value}
-                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 cursor-pointer transition-all
-                                    ${selectedServiceType === t.value
-                                      ? 'border-primary-500 bg-primary-50'
-                                      : 'border-gray-200 bg-white hover:border-gray-300'}`}
-                      >
-                        <input
-                          type="radio"
-                          value={t.value}
-                          className="sr-only"
-                          {...register('service_type', { required: 'Seleciona o tipo de serviço' })}
-                        />
-                        <span className="text-2xl">{t.icon}</span>
-                        <span className="text-xs font-medium text-gray-700 text-center leading-tight">{t.label}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <label className="input-label">Profissão / Tipo de serviço *</label>
+                  <select
+                    className="input-field"
+                    {...register('service_type', { required: 'Seleciona o tipo de serviço' })}
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Seleciona a tua profissão...</option>
+                    <optgroup label="── Saúde e Cuidado ──">
+                      {SERVICE_TYPES.filter((t) => t.group === 'health').map((t) => (
+                        <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="── Serviços Gerais ──">
+                      {SERVICE_TYPES.filter((t) => t.group === 'general').map((t) => (
+                        <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                      ))}
+                    </optgroup>
+                  </select>
                   {errors.service_type && (
                     <p className="text-red-500 text-xs mt-1">{errors.service_type.message}</p>
                   )}
                 </div>
 
-                {/* Nursing license — only when nurse is selected */}
-                {selectedServiceType === 'nurse' && (
+                {/* "Outro" — custom profession name */}
+                {isOtherType && (
+                  <div>
+                    <label className="input-label">Qual é a tua profissão? *</label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="Ex: Técnico de ar condicionado, Maquiador..."
+                      {...register('custom_profession', { required: 'Indica a tua profissão' })}
+                    />
+                    {errors.custom_profession && (
+                      <p className="text-red-500 text-xs mt-1">{errors.custom_profession.message}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* License number — health professions only */}
+                {needsLicense && (
                   <div>
                     <label className="input-label">
-                      {watch('country') === 'BR'
-                        ? 'Número do COREN (Conselho Regional de Enfermagem) *'
-                        : 'Número da Cédula Profissional (Ordem dos Enfermeiros) *'}
+                      {getLicenseLabel(country, selectedServiceType)} *
                     </label>
                     <input
                       type="text"
                       className="input-field"
-                      placeholder={watch('country') === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
+                      placeholder={country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
                       {...register('nursing_license', { required: 'Número de licença profissional obrigatório' })}
                     />
                     {errors.nursing_license && (
@@ -460,6 +461,7 @@ export default function Register() {
                   </div>
                 )}
 
+                {/* Hourly rate */}
                 <div>
                   <label className="input-label">Preço por hora (€) *</label>
                   <input
@@ -476,6 +478,7 @@ export default function Register() {
                   {errors.hourly_rate && <p className="text-red-500 text-xs mt-1">{errors.hourly_rate.message}</p>}
                 </div>
 
+                {/* Bio */}
                 <div>
                   <label className="input-label">Bio / Descrição</label>
                   <textarea
@@ -486,8 +489,8 @@ export default function Register() {
                   />
                 </div>
 
-                {/* Cleaning-specific fields */}
-                {selectedServiceType === 'cleaner' && (
+                {/* Cleaner-specific fields */}
+                {isCleanerType && (
                   <>
                     <div>
                       <label className="input-label">Tipos de limpeza oferecida *</label>
