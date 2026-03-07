@@ -261,7 +261,7 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
 }
 
 export default function Dashboard() {
-  const { user, userRole } = useAppStore()
+  const { user, userRole, addNotification } = useAppStore()
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
@@ -271,7 +271,9 @@ export default function Dashboard() {
   const [finishBooking, setFinishBooking]     = useState(null)
   const [finishLoading, setFinishLoading]     = useState(false)
   const [successMsg, setSuccessMsg]           = useState(null)
-  const { addNotification } = useAppStore()
+
+  // Derive isProvider early — must be before any useEffect that references it
+  const isProvider = userRole === 'professional'
 
   useEffect(() => { fetchBookings() }, [])
 
@@ -328,24 +330,32 @@ export default function Dashboard() {
     setTimeout(() => setSuccessMsg(null), 6000)
   }, [finishBooking, fetchBookings])
 
-  const handleSignOut = async () => {
-    await signOut()
-    navigate('/')
-  }
-
-  const isProvider = userRole === 'professional'
-
-  const filteredBookings = bookings.filter((b) => {
+  const filteredBookings = (bookings || []).filter((b) => {
     if (filter === 'all')    return true
     if (filter === 'active') return ['pending', 'confirmed', 'in_progress'].includes(b.status)
     if (filter === 'done')   return b.status === 'completed'
     return true
   })
 
-  const completedCount = bookings.filter((b) => b.status === 'completed').length
-  const activeCount    = bookings.filter((b) => ['pending', 'confirmed', 'in_progress'].includes(b.status)).length
+  const completedCount = (bookings || []).filter((b) => b.status === 'completed').length
+  const activeCount    = (bookings || []).filter((b) => ['pending', 'confirmed', 'in_progress'].includes(b.status)).length
 
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Utilizador'
+
+  // Show spinner while auth session + role are being resolved
+  if (!user || userRole === null) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-sm text-gray-500">A carregar o teu painel...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
