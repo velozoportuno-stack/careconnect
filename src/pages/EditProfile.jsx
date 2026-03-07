@@ -38,7 +38,8 @@ function completionPercent(profile) {
 }
 
 export default function EditProfile() {
-  const { user, userRole } = useAppStore()
+  const { user, userRole, activeRole } = useAppStore()
+  const effectiveRole = activeRole || userRole
   const navigate = useNavigate()
   const avatarRef = useRef(null)
 
@@ -214,7 +215,7 @@ export default function EditProfile() {
     )
   }
 
-  const isProvider = userRole && userRole !== 'client' && userRole !== 'admin'
+  const isProvider = effectiveRole && effectiveRole !== 'client' && effectiveRole !== 'admin'
   const pct = isProvider ? completionPercent(profile) : null
   const bankMissing = isProvider && !profile?.bank_account_value
 

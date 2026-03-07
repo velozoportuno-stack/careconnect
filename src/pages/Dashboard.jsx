@@ -191,7 +191,7 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
 }
 
 export default function Dashboard() {
-  const { user, userRole } = useAppStore()
+  const { user, userRole, secondaryRole, activeRole } = useAppStore()
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
@@ -206,7 +206,11 @@ export default function Dashboard() {
     navigate('/')
   }
 
-  const isProvider = userRole && userRole !== 'client' && userRole !== 'admin'
+  // Use the active role for all role-based UI decisions
+  const effectiveRole = activeRole || userRole
+  const isProvider = effectiveRole && effectiveRole !== 'client' && effectiveRole !== 'admin'
+  // Show "become professional" banner only for pure clients (no secondary role yet)
+  const showBecomePro = effectiveRole === 'client' && !secondaryRole
 
   const filteredBookings = bookings.filter((b) => {
     if (filter === 'all')    return true
@@ -236,9 +240,9 @@ export default function Dashboard() {
               <span className="text-sm text-gray-500">
                 {isProvider ? 'Painel do profissional' : 'Os meus agendamentos'}
               </span>
-              {userRole && (
+              {effectiveRole && (
                 <span className="badge-teal text-xs">
-                  {ROLE_LABEL[userRole] || userRole}
+                  {ROLE_LABEL[effectiveRole] || effectiveRole}
                 </span>
               )}
             </div>
@@ -286,6 +290,29 @@ export default function Dashboard() {
             bg="bg-emerald-50"
           />
         </div>
+
+        {/* ── Become a professional banner (clients without a pro profile) ── */}
+        {showBecomePro && (
+          <div className="card mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-4
+                          border-2 border-amber-100 bg-amber-50">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <Briefcase className="w-6 h-6 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-gray-900">Oferece também os teus serviços</p>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Com a mesma conta podes atuar como cuidador, enfermeiro ou assistente de limpeza.
+              </p>
+            </div>
+            <Link
+              to="/register?add_role=professional"
+              className="btn-primary text-sm whitespace-nowrap flex-shrink-0"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Adicionar perfil profissional
+            </Link>
+          </div>
+        )}
 
         {/* ── Service Manager (providers only) ── */}
         {isProvider && <ServiceManager />}
@@ -360,7 +387,7 @@ export default function Dashboard() {
                 <BookingRow
                   key={booking.id}
                   booking={booking}
-                  userRole={userRole}
+                  userRole={effectiveRole}
                   userId={user?.id}
                   isExpanded={expandedId === booking.id}
                   onToggle={(id) => setExpandedId((prev) => (prev === id ? null : id))}
