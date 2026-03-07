@@ -3,24 +3,23 @@ import { Plus, Pencil, Trash2, X, Save, ToggleLeft, ToggleRight, Loader2, Briefc
 import { supabase } from '../../lib/supabase'
 import { useAppStore } from '../../store/appStore'
 import { formatCurrency } from '../../utils/formatters'
+import { SERVICE_TYPES, SERVICE_TYPE_LABELS } from '../../utils/constants'
 
-const CATEGORIES = [
-  { value: 'caregiver', label: 'Cuidador(a) de Idosos', icon: '🧓' },
-  { value: 'nurse',     label: 'Enfermeiro(a)',          icon: '🩺' },
-  { value: 'cleaner',   label: 'Assistente de Limpeza',  icon: '🧹' },
-]
+// Badge colour by service group
+function badgeColor(category) {
+  const t = SERVICE_TYPES.find((s) => s.value === category)
+  if (!t) return 'badge-gray'
+  if (t.group === 'health') return 'badge-blue'
+  if (category === 'cleaner') return 'badge-teal'
+  return 'badge-gray'
+}
 
-const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.value, c.label]))
-const CATEGORY_ICON  = Object.fromEntries(CATEGORIES.map((c) => [c.value, c.icon]))
-
-const CATEGORY_COLOR = {
-  caregiver: 'badge-amber',
-  nurse:     'badge-blue',
-  cleaner:   'badge-teal',
+function categoryIcon(category) {
+  return SERVICE_TYPES.find((s) => s.value === category)?.icon || '🔧'
 }
 
 function emptyService() {
-  return { category: 'caregiver', title: '', description: '', bio: '', price_per_hour: '' }
+  return { category: '', title: '', description: '', bio: '', price_per_hour: '', daily_rate: '' }
 }
 
 function ServiceModal({ service, onSave, onClose }) {
@@ -28,9 +27,13 @@ function ServiceModal({ service, onSave, onClose }) {
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState(null)
 
+  function handleCategoryChange(val) {
+    const label = SERVICE_TYPE_LABELS[val] || ''
+    setForm((f) => ({ ...f, category: val, title: f.title || label }))
+  }
+
   async function handleSave() {
-    if (!form.title.trim())      { setError('Título obrigatório.'); return }
-    if (!form.category)          { setError('Categoria obrigatória.'); return }
+    if (!form.category)      { setError('Seleciona a profissão.'); return }
     if (!form.price_per_hour || parseFloat(form.price_per_hour) <= 0) {
       setError('Preço por hora obrigatório.')
       return
@@ -40,7 +43,8 @@ function ServiceModal({ service, onSave, onClose }) {
     await onSave({
       ...form,
       price_per_hour: parseFloat(form.price_per_hour),
-      title: form.title || CATEGORY_LABEL[form.category],
+      daily_rate:     form.daily_rate ? parseFloat(form.daily_rate) : null,
+      title:          form.title || SERVICE_TYPE_LABELS[form.category] || 'Serviço',
     })
     setSaving(false)
   }
@@ -67,29 +71,26 @@ function ServiceModal({ service, onSave, onClose }) {
             </p>
           )}
 
-          {/* Category */}
+          {/* Profession / category — full dropdown matching registration */}
           <div>
-            <label className="input-label">Tipo de serviço *</label>
-            <div className="grid grid-cols-3 gap-2 mt-1">
-              {CATEGORIES.map((cat) => (
-                <label
-                  key={cat.value}
-                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 cursor-pointer transition-all
-                              ${form.category === cat.value
-                                ? 'border-primary-500 bg-primary-50'
-                                : 'border-gray-200 hover:border-gray-300'}`}
-                >
-                  <input
-                    type="radio"
-                    className="sr-only"
-                    checked={form.category === cat.value}
-                    onChange={() => setForm((f) => ({ ...f, category: cat.value, title: cat.label }))}
-                  />
-                  <span className="text-2xl">{cat.icon}</span>
-                  <span className="text-xs font-medium text-gray-700 text-center leading-tight">{cat.label}</span>
-                </label>
-              ))}
-            </div>
+            <label className="input-label">Profissão / Tipo de serviço *</label>
+            <select
+              className="input-field"
+              value={form.category}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+            >
+              <option value="" disabled>Seleciona a profissão...</option>
+              <optgroup label="── Saúde e Cuidado ──">
+                {SERVICE_TYPES.filter((t) => t.group === 'health').map((t) => (
+                  <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                ))}
+              </optgroup>
+              <optgroup label="── Serviços Gerais ──">
+                {SERVICE_TYPES.filter((t) => t.group === 'general' && t.value !== 'other').map((t) => (
+                  <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                ))}
+              </optgroup>
+            </select>
           </div>
 
           {/* Title */}
@@ -97,33 +98,47 @@ function ServiceModal({ service, onSave, onClose }) {
             <label className="input-label">Título do serviço *</label>
             <input
               className="input-field"
-              placeholder={CATEGORY_LABEL[form.category] || 'Ex: Cuidados domiciliários'}
+              placeholder={SERVICE_TYPE_LABELS[form.category] || 'Ex: Cuidados domiciliários'}
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
             />
           </div>
 
-          {/* Price */}
-          <div>
-            <label className="input-label">Preço por hora (€) *</label>
-            <input
-              type="number"
-              step="0.50"
-              min="1"
-              className="input-field"
-              placeholder="15.00"
-              value={form.price_per_hour}
-              onChange={(e) => setForm((f) => ({ ...f, price_per_hour: e.target.value }))}
-            />
+          {/* Rates */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="input-label">⏱ Preço/hora (€) *</label>
+              <input
+                type="number"
+                step="0.50"
+                min="1"
+                className="input-field"
+                placeholder="15.00"
+                value={form.price_per_hour}
+                onChange={(e) => setForm((f) => ({ ...f, price_per_hour: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="input-label">📅 Preço/dia (€)</label>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                className="input-field"
+                placeholder="80"
+                value={form.daily_rate}
+                onChange={(e) => setForm((f) => ({ ...f, daily_rate: e.target.value }))}
+              />
+            </div>
           </div>
 
           {/* Bio */}
           <div>
-            <label className="input-label">Bio para este serviço</label>
+            <label className="input-label">Bio / Experiência</label>
             <textarea
               rows={3}
               className="input-field resize-none text-sm"
-              placeholder="Experiência específica, certificações, especialidade..."
+              placeholder="Experiência, certificações, especialidade..."
               value={form.bio}
               onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
             />
@@ -170,13 +185,13 @@ export default function ServiceManager() {
   const { user } = useAppStore()
   const [services, setServices]   = useState([])
   const [loading, setLoading]     = useState(true)
-  const [modalData, setModalData] = useState(null) // null = closed, {} = new, {id,...} = edit
+  const [modalData, setModalData] = useState(null)
   const [deleting, setDeleting]   = useState(null)
 
   useEffect(() => { fetchServices() }, [])
 
   async function fetchServices() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('provider_services')
       .select('*')
       .eq('provider_id', user.id)
@@ -212,9 +227,7 @@ export default function ServiceManager() {
     setDeleting(null)
   }
 
-  if (loading) return (
-    <div className="card animate-pulse h-32" />
-  )
+  if (loading) return <div className="card animate-pulse h-32 mb-6" />
 
   return (
     <div className="card mb-6">
@@ -260,17 +273,24 @@ export default function ServiceManager() {
             >
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">{CATEGORY_ICON[svc.category] || '🔧'}</span>
+                  <span className="text-2xl">{categoryIcon(svc.category)}</span>
                   <div>
                     <p className="font-bold text-gray-900 text-sm leading-tight">{svc.title}</p>
-                    <span className={`${CATEGORY_COLOR[svc.category] || 'badge-gray'} text-xs mt-0.5`}>
-                      {CATEGORY_LABEL[svc.category] || svc.category}
+                    <span className={`${badgeColor(svc.category)} text-xs mt-0.5`}>
+                      {SERVICE_TYPE_LABELS[svc.category] || svc.category || 'Serviço'}
                     </span>
                   </div>
                 </div>
-                <p className="text-lg font-extrabold text-primary-600 flex-shrink-0">
-                  {formatCurrency(svc.price_per_hour)}<span className="text-xs text-gray-400 font-normal">/h</span>
-                </p>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-base font-extrabold text-primary-600">
+                    {formatCurrency(svc.price_per_hour)}<span className="text-xs text-gray-400 font-normal">/h</span>
+                  </p>
+                  {svc.daily_rate && (
+                    <p className="text-sm font-semibold text-primary-500">
+                      {formatCurrency(svc.daily_rate)}<span className="text-xs text-gray-400 font-normal">/dia</span>
+                    </p>
+                  )}
+                </div>
               </div>
 
               {svc.bio && (
@@ -278,7 +298,6 @@ export default function ServiceManager() {
               )}
 
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                {/* Toggle available */}
                 <button
                   onClick={() => toggleAvailability(svc)}
                   className={`flex items-center gap-1.5 text-xs font-semibold transition-colors

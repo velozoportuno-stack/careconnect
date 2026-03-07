@@ -133,21 +133,26 @@ export default function EditProfile() {
 
   async function uploadAvatar() {
     const file = avatarRef.current?.files?.[0]
-    if (!file) return profile?.avatar_url || null
+    if (!file) return { url: profile?.avatar_url || null, uploadError: null }
     const ext = file.name.split('.').pop()
     const path = `${user.id}.${ext}`
-    await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+    const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+    if (uploadErr) return { url: profile?.avatar_url || null, uploadError: uploadErr.message }
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
-    return data.publicUrl
+    return { url: data.publicUrl, uploadError: null }
   }
 
   async function handleSave() {
     setSaving(true)
     setError(null)
     try {
-      const avatarUrl = await uploadAvatar()
+      const { url: avatarUrl, uploadError } = await uploadAvatar()
+      if (uploadError) {
+        // Show warning but continue saving — photo upload failure shouldn't block profile save
+        setError(`Foto não guardada: ${uploadError}`)
+      }
 
-      // Base fields that always exist
+      // Base fields that always exist in the profiles table
       const baseUpdate = {
         full_name:    profile.full_name,
         bio:          profile.bio,
@@ -166,48 +171,54 @@ export default function EditProfile() {
         profile.country === 'BR' ? 'pix'  :
         profile.bank_account_type ?? null
 
+      // Extended fields — added by migrations; may not exist in older DB schemas
+      const extendedUpdate = {
+        bank_account_type:       bankType,
+        bank_account_value:      profile.bank_account_value   ?? null,
+        bank_account_name:       profile.bank_account_name    ?? null,
+        address:                 profile.address              ?? null,
+        daily_rate:              profile.daily_rate ? parseFloat(profile.daily_rate) : null,
+        cleaning_types:          profile.cleaning_types       ?? null,
+        cleaning_description:    profile.cleaning_description ?? null,
+        nursing_license:         profile.nursing_license      ?? null,
+        nursing_license_country: profile.country              ?? 'PT',
+        custom_profession:       profile.custom_profession    ?? null,
+      }
+
       const { error: upErr } = await supabase
         .from('profiles')
-        .update({
-          ...baseUpdate,
-          bank_account_type:       bankType,
-          bank_account_value:      profile.bank_account_value   ?? null,
-          bank_account_name:       profile.bank_account_name    ?? null,
-          address:                 profile.address              ?? null,
-          daily_rate:              profile.daily_rate ? parseFloat(profile.daily_rate) : null,
-          cleaning_types:          profile.cleaning_types       ?? null,
-          cleaning_description:    profile.cleaning_description ?? null,
-          nursing_license:         profile.nursing_license      ?? null,
-          nursing_license_country: profile.country              ?? 'PT',
-          custom_profession:       profile.custom_profession    ?? null,
-        })
+        .update({ ...baseUpdate, ...extendedUpdate })
         .eq('id', user.id)
 
       if (upErr) {
-        // If extended columns are missing, save base fields first then retry bank fields separately
+        // Extended columns may not exist yet — save base fields first (must succeed)
         const { error: baseErr } = await supabase
           .from('profiles')
           .update(baseUpdate)
           .eq('id', user.id)
         if (baseErr) throw new Error(baseErr.message)
 
-        // Retry bank account fields independently so they're never silently dropped
-        await supabase
-          .from('profiles')
-          .update({
-            bank_account_type:  bankType,
-            bank_account_value: profile.bank_account_value ?? null,
-            bank_account_name:  profile.bank_account_name  ?? null,
-          })
-          .eq('id', user.id)
-        // Bank retry errors are non-fatal — migration may not be run yet
+        // Retry each extended group independently — errors are non-fatal (migration may not be run)
+        await supabase.from('profiles').update({
+          bank_account_type:  bankType,
+          bank_account_value: profile.bank_account_value ?? null,
+          bank_account_name:  profile.bank_account_name  ?? null,
+        }).eq('id', user.id)
+
+        await supabase.from('profiles').update({
+          daily_rate:              profile.daily_rate ? parseFloat(profile.daily_rate) : null,
+          cleaning_types:          profile.cleaning_types       ?? null,
+          cleaning_description:    profile.cleaning_description ?? null,
+          nursing_license:         profile.nursing_license      ?? null,
+          nursing_license_country: profile.country              ?? 'PT',
+          custom_profession:       profile.custom_profession    ?? null,
+        }).eq('id', user.id)
       }
 
       setProfile((p) => ({ ...p, avatar_url: avatarUrl }))
-      if (!upErr) {
-        setSuccess(true)
-        setTimeout(() => setSuccess(false), 3000)
-      }
+      if (!uploadError) setError(null)
+      setSuccess(true)
+      setTimeout(() => setSuccess(false), 4000)
     } catch (e) {
       setError(e.message)
     } finally {
