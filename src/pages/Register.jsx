@@ -52,7 +52,9 @@ export default function Register() {
   const [cleaningTypesSelected, setCleaningTypesSelected] = useState([])
   const avatarFileRef = useRef(null)
 
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm()
+  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm({
+    defaultValues: { country: 'PT' },
+  })
   const selectedServiceType = watch('service_type')
 
   function handleRoleSelect(type) {
@@ -61,8 +63,10 @@ export default function Register() {
   }
 
   function handleCountryChange(e) {
-    setCountry(e.target.value)
-    setValue('city', '') // reset city when country changes
+    const val = e.target.value
+    setCountry(val)
+    setValue('country', val)   // keep react-hook-form in sync
+    setValue('city', '')       // reset city when country changes
   }
 
   function handleAvatarChange(e) {
@@ -85,24 +89,30 @@ export default function Register() {
     setLoading(true)
     setError(null)
 
-    // role is always 'client' or 'professional'
-    // service_type stores the specific professional type (nurse / caregiver / cleaner)
-    const role = userType === 'client' ? 'client' : 'professional'
+    // role is always 'client' or 'professional'.
+    // service_type holds the specific professional sub-type.
+    const isProfessional = userType === 'professional'
+    const role = isProfessional ? 'professional' : 'client'
+
+    // values.country may be stale if the user changed the country select
+    // (because we override RHF's onChange); use the local state as source of truth.
+    const resolvedCountry = country || values.country || 'PT'
+
     const userData = {
-      full_name:   values.full_name,
-      phone:       values.phone,
-      city:        values.city,
-      country:     values.country,
-      location:    values.address || null,
+      full_name: values.full_name,
+      phone:     values.phone,
+      city:      values.city,
+      country:   resolvedCountry,
+      location:  values.address || null,
       role,
-      ...(userType === 'professional' && {
+      ...(isProfessional && {
         service_type: values.service_type,
         hourly_rate:  parseFloat(values.hourly_rate) || null,
         bio:          values.bio || null,
       }),
       ...(values.service_type === 'nurse' && {
         nursing_license:         values.nursing_license || null,
-        nursing_license_country: values.country || null,
+        nursing_license_country: resolvedCountry,
       }),
       ...(values.service_type === 'cleaner' && {
         cleaning_types:       cleaningTypesSelected.length ? cleaningTypesSelected : null,
@@ -113,13 +123,13 @@ export default function Register() {
     const { data, error: signUpError } = await signUp(values.email, values.password, userData)
 
     if (signUpError) {
-      const translated = translateError(signUpError.message)
-      setError(translated)
+      setError(translateError(signUpError.message))
       setLoading(false)
       return
     }
 
-    if (userType === 'professional' && data?.user && avatarFileRef.current?.files?.[0]) {
+    // Upload avatar for professionals after account is created
+    if (isProfessional && data?.user && avatarFileRef.current?.files?.[0]) {
       const avatarUrl = await uploadAvatar(data.user.id)
       if (avatarUrl) {
         await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', data.user.id)
@@ -127,6 +137,7 @@ export default function Register() {
     }
 
     setLoading(false)
+    // Both go to /dashboard — Dashboard renders provider or client view based on role
     navigate('/dashboard')
   }
 
@@ -358,7 +369,6 @@ export default function Register() {
                   className="input-field"
                   {...register('country', { required: 'País obrigatório' })}
                   onChange={handleCountryChange}
-                  defaultValue="PT"
                 >
                   {COUNTRIES.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
