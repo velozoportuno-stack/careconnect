@@ -62,6 +62,13 @@ export default function EditProfile() {
   async function fetchProfile() {
     const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (data) {
+      // Generate a professional ID on first load if one wasn't created at signup
+      if (!data.professional_id_number && (data.role === 'professional' || userRole === 'professional')) {
+        const newId = Math.floor(100000 + Math.random() * 900000)
+        await supabase.from('profiles').update({ professional_id_number: newId }).eq('id', user.id)
+        data.professional_id_number = newId
+        console.log('[Profile] generated professional_id_number:', newId)
+      }
       setProfile(data)
       setCountry(data.country || 'PT')
     }
@@ -123,7 +130,9 @@ export default function EditProfile() {
       }
 
       setAvailSuccess(true)
-      setTimeout(() => setAvailSuccess(false), 3000)
+      setTimeout(() => setAvailSuccess(false), 4000)
+      // Reload from DB to confirm saved values populate the time inputs
+      await loadAvailability()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -136,10 +145,18 @@ export default function EditProfile() {
     if (!file) return { url: profile?.avatar_url || null, uploadError: null }
     const ext = file.name.split('.').pop()
     const path = `${user.id}.${ext}`
-    const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
-    if (uploadErr) return { url: profile?.avatar_url || null, uploadError: uploadErr.message }
-    const { data } = supabase.storage.from('avatars').getPublicUrl(path)
-    return { url: data.publicUrl, uploadError: null }
+    console.log('[Avatar] uploading to bucket "avatars", path:', path)
+    const { data: uploadData, error: uploadErr } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true })
+    console.log('[Avatar] upload result:', { uploadData, uploadErr })
+    if (uploadErr) {
+      console.error('[Avatar] upload failed:', uploadErr.message)
+      return { url: profile?.avatar_url || null, uploadError: uploadErr.message }
+    }
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+    console.log('[Avatar] public URL:', urlData.publicUrl)
+    return { url: urlData.publicUrl, uploadError: null }
   }
 
   async function handleSave() {
@@ -185,10 +202,13 @@ export default function EditProfile() {
         custom_profession:       profile.custom_profession    ?? null,
       }
 
+      console.log('[Profile] saving — nursing_license:', profile.nursing_license, '| service_type:', profile.service_type, '| avatar_url:', avatarUrl)
+
       const { error: upErr } = await supabase
         .from('profiles')
         .update({ ...baseUpdate, ...extendedUpdate })
         .eq('id', user.id)
+      console.log('[Profile] update result:', { upErr })
 
       if (upErr) {
         // Extended columns may not exist yet — save base fields first (must succeed)
