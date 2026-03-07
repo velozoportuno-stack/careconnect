@@ -35,18 +35,18 @@ export const SERVICE_TYPE_LABELS = Object.fromEntries(
 
 // Professions that require a license number
 export const LICENSE_REQUIRED = new Set([
-  'nurse', 'auxiliary_nurse', 'physiotherapist', 'psychologist', 'nutritionist',
+  'nurse', 'auxiliary_nurse', 'caregiver', 'physiotherapist', 'psychologist', 'nutritionist',
 ])
 
 // License label by country and profession
 export function getLicenseLabel(country, serviceType) {
   if (country === 'BR') {
-    if (serviceType === 'psychologist')  return 'Número do CRP (Conselho Regional de Psicologia)'
-    if (serviceType === 'nutritionist')  return 'Número do CRN (Conselho Regional de Nutrição)'
+    if (serviceType === 'psychologist')    return 'Número do CRP (Conselho Regional de Psicologia)'
+    if (serviceType === 'nutritionist')    return 'Número do CRN (Conselho Regional de Nutrição)'
     if (serviceType === 'physiotherapist') return 'Número do CREFITO'
-    return 'Número do COREN (Conselho Regional de Enfermagem)'
+    return 'Número do COREN/CRP/CRN/CREFITO'
   }
-  return 'Número da Cédula Profissional'
+  return 'Número da Cédula Profissional (Ordem dos Enfermeiros / Associação de Saúde)'
 }
 
 export const CLEANING_TYPES = [

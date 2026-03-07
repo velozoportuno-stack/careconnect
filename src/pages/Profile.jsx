@@ -1,23 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, Hash } from 'lucide-react'
+import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, BadgeCheck } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import AvailabilityCalendar from '../components/availability/AvailabilityCalendar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { formatCurrency, formatRating } from '../utils/formatters'
-import { CLEANING_TYPE_LABELS } from '../utils/constants'
+import { CLEANING_TYPE_LABELS, SERVICE_TYPE_LABELS } from '../utils/constants'
 
-const ROLE_LABEL = {
-  caregiver: 'Cuidador(a) de Idosos',
-  nurse:     'Enfermeiro(a)',
-  cleaner:   'Assistente de Limpeza',
-}
-
-const ROLE_COLOR = {
-  caregiver: 'badge-amber',
-  nurse:     'badge-blue',
-  cleaner:   'badge-teal',
+function getBadgeColor(serviceType) {
+  if (['nurse', 'auxiliary_nurse', 'physiotherapist', 'psychologist', 'nutritionist'].includes(serviceType))
+    return 'badge-blue'
+  if (['caregiver', 'personal_trainer'].includes(serviceType))
+    return 'badge-amber'
+  if (serviceType === 'cleaner') return 'badge-teal'
+  return 'badge-gray'
 }
 
 function StarRating({ rating, total }) {
@@ -183,8 +180,8 @@ export default function Profile() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h1 className="text-2xl font-extrabold text-gray-900">{profile.full_name}</h1>
-                      <span className={`${ROLE_COLOR[profile.service_type] || 'badge-gray'} mt-1`}>
-                        {ROLE_LABEL[profile.service_type] || 'Profissional'}
+                      <span className={`${getBadgeColor(profile.service_type)} mt-1`}>
+                        {SERVICE_TYPE_LABELS[profile.service_type] || profile.custom_profession || 'Profissional'}
                       </span>
                     </div>
                     {profile.is_verified && (
@@ -202,9 +199,9 @@ export default function Profile() {
                       {profile.city || 'Portugal'}
                     </div>
                     {profile.professional_id_number && (
-                      <div className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 text-xs font-semibold px-2.5 py-1 rounded-full">
-                        <Hash className="w-3 h-3" />
-                        O seu ID: {profile.professional_id_number}
+                      <div className="inline-flex items-center gap-2 bg-primary-50 border border-primary-100 text-primary-700 text-sm font-bold px-3 py-1.5 rounded-xl">
+                        <BadgeCheck className="w-4 h-4 flex-shrink-0" />
+                        🪪 ID do Profissional: {profile.professional_id_number}
                       </div>
                     )}
                   </div>
