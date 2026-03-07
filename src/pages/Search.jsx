@@ -4,6 +4,7 @@ import { Search as SearchIcon, Star, MapPin, SlidersHorizontal, ChevronRight } f
 import { supabase } from '../lib/supabase'
 import { formatCurrency, formatRating } from '../utils/formatters'
 import { COUNTRIES, CITIES } from '../utils/locations'
+import { CLEANING_TYPE_LABELS } from '../utils/constants'
 import Navbar from '../components/Navbar'
 
 const CATEGORIES = [
@@ -54,6 +55,8 @@ function normalizeService(svc) {
     serviceId: svc.id, providerId: svc.provider_id || p.id,
     title: svc.title, category: svc.category || p.role,
     bio: svc.bio || svc.description, price: svc.price_per_hour,
+    dailyRate: p.daily_rate || null,
+    cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
     rating: p.rating || 0, totalReviews: p.total_reviews || 0,
     city: p.city,
@@ -65,6 +68,8 @@ function normalizeProfile(p) {
     serviceId: null, providerId: p.id,
     title: CATEGORY_LABEL[p.role] || 'Serviço', category: p.role,
     bio: p.bio, price: p.hourly_rate,
+    dailyRate: p.daily_rate || null,
+    cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
     rating: p.rating || 0, totalReviews: p.total_reviews || 0,
     city: p.city,
@@ -86,7 +91,7 @@ export default function Search() {
     setLoading(true)
     let q = supabase
       .from('provider_services')
-      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, total_reviews, city, is_active)')
+      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, total_reviews, city, is_active, daily_rate, cleaning_types)')
       .eq('is_available', true)
     if (category !== 'Todos') q = q.eq('category', category)
 
@@ -98,7 +103,7 @@ export default function Search() {
       // Fallback to profiles (before migration runs)
       let pq = supabase
         .from('profiles')
-        .select('id, full_name, avatar_url, bio, city, hourly_rate, rating, total_reviews, role')
+        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role')
         .neq('role', 'client').neq('role', 'admin').eq('is_active', true)
       if (category !== 'Todos') pq = pq.eq('role', category)
       const { data: pd } = await pq.order('rating', { ascending: false })
@@ -192,11 +197,18 @@ export default function Search() {
                           {CATEGORY_LABEL[item.category] || item.category}
                         </span>
                       </div>
-                      {item.price && (
-                        <span className="text-primary-600 font-bold text-base whitespace-nowrap flex-shrink-0">
-                          {formatCurrency(item.price)}<span className="text-xs text-gray-400 font-normal">/h</span>
-                        </span>
-                      )}
+                      <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                        {item.price && (
+                          <span className="text-primary-600 font-bold text-base whitespace-nowrap">
+                            {formatCurrency(item.price)}<span className="text-xs text-gray-400 font-normal">/h</span>
+                          </span>
+                        )}
+                        {item.dailyRate && (
+                          <span className="text-primary-500 font-semibold text-sm whitespace-nowrap">
+                            {formatCurrency(item.dailyRate)}<span className="text-xs text-gray-400 font-normal">/dia</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-1.5">
                       <StarRating rating={item.rating} total={item.totalReviews} />
@@ -208,6 +220,19 @@ export default function Search() {
 
                 {item.bio && (
                   <p className="text-sm text-gray-500 line-clamp-2 flex-1">{item.bio}</p>
+                )}
+
+                {item.cleaningTypes?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {item.cleaningTypes.slice(0, 3).map((type) => (
+                      <span key={type} className="badge-teal text-xs">
+                        {CLEANING_TYPE_LABELS[type] || type}
+                      </span>
+                    ))}
+                    {item.cleaningTypes.length > 3 && (
+                      <span className="text-xs text-gray-400">+{item.cleaningTypes.length - 3}</span>
+                    )}
+                  </div>
                 )}
 
                 <div className="mt-4 flex items-center justify-between pt-4 border-t border-gray-100">

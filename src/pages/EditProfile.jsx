@@ -8,6 +8,7 @@ import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { COUNTRIES, CITIES } from '../utils/locations'
+import { CLEANING_TYPES } from '../utils/constants'
 
 const SERVICE_TYPES = [
   { value: 'caregiver', label: 'Cuidador(a) de Idosos', icon: '🧓' },
@@ -169,10 +170,13 @@ export default function EditProfile() {
         .from('profiles')
         .update({
           ...baseUpdate,
-          bank_account_type:  profile.bank_account_type  ?? null,
-          bank_account_value: profile.bank_account_value ?? null,
-          bank_account_name:  profile.bank_account_name  ?? null,
-          address:            profile.address            ?? null,
+          bank_account_type:    profile.bank_account_type    ?? null,
+          bank_account_value:   profile.bank_account_value   ?? null,
+          bank_account_name:    profile.bank_account_name    ?? null,
+          address:              profile.address              ?? null,
+          daily_rate:           profile.daily_rate ? parseFloat(profile.daily_rate) : null,
+          cleaning_types:       profile.cleaning_types       ?? null,
+          cleaning_description: profile.cleaning_description ?? null,
         })
         .eq('id', user.id)
 
@@ -356,16 +360,33 @@ export default function EditProfile() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="input-label">Preço por hora (€)</label>
-                    <input
-                      type="number"
-                      step="0.50"
-                      min="1"
-                      className="input-field"
-                      value={profile?.hourly_rate || ''}
-                      onChange={(e) => setProfile((p) => ({ ...p, hourly_rate: e.target.value }))}
-                    />
+                  {/* Hourly rate + daily rate side by side for care roles */}
+                  <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile?.role) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div>
+                      <label className="input-label">⏱ Valor por hora (€)</label>
+                      <input
+                        type="number"
+                        step="0.50"
+                        min="1"
+                        className="input-field"
+                        value={profile?.hourly_rate || ''}
+                        onChange={(e) => setProfile((p) => ({ ...p, hourly_rate: e.target.value }))}
+                      />
+                    </div>
+                    {['caregiver', 'nurse'].includes(profile?.role) && (
+                      <div>
+                        <label className="input-label">📅 Valor por dia (€)</label>
+                        <input
+                          type="number"
+                          step="1"
+                          min="1"
+                          className="input-field"
+                          placeholder="Ex: 80"
+                          value={profile?.daily_rate || ''}
+                          onChange={(e) => setProfile((p) => ({ ...p, daily_rate: e.target.value }))}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -378,6 +399,60 @@ export default function EditProfile() {
                       onChange={(e) => setProfile((p) => ({ ...p, bio: e.target.value }))}
                     />
                   </div>
+
+                  {/* Cleaning-specific fields */}
+                  {profile?.role === 'cleaner' && (
+                    <>
+                      <div>
+                        <label className="input-label">Tipos de limpeza oferecida</label>
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          {CLEANING_TYPES.map((type) => {
+                            const checked = (profile?.cleaning_types || []).includes(type.value)
+                            return (
+                              <label
+                                key={type.value}
+                                className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all
+                                            ${checked ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}
+                              >
+                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
+                                                 ${checked ? 'bg-primary-500 border-primary-500' : 'border-gray-300'}`}>
+                                  {checked && (
+                                    <svg viewBox="0 0 10 8" className="w-2.5 h-2" fill="none">
+                                      <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  )}
+                                </div>
+                                <span className="text-xs font-medium text-gray-700">{type.label}</span>
+                                <input
+                                  type="checkbox"
+                                  className="sr-only"
+                                  checked={checked}
+                                  onChange={(e) =>
+                                    setProfile((p) => ({
+                                      ...p,
+                                      cleaning_types: e.target.checked
+                                        ? [...(p.cleaning_types || []), type.value]
+                                        : (p.cleaning_types || []).filter((v) => v !== type.value),
+                                    }))
+                                  }
+                                />
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="input-label">Descrição dos serviços de limpeza</label>
+                        <textarea
+                          rows={3}
+                          className="input-field resize-none"
+                          placeholder="Equipamentos, metodologia, o que está incluído..."
+                          value={profile?.cleaning_description || ''}
+                          onChange={(e) => setProfile((p) => ({ ...p, cleaning_description: e.target.value }))}
+                        />
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 

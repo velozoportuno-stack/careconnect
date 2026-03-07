@@ -21,11 +21,15 @@ function formatExpiry(v) {
   return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits
 }
 
-function PriceSummary({ hourlyRate, duration, totalPrice }) {
+function PriceSummary({ bookingType, hourlyRate, dailyRate, duration, days, totalPrice }) {
+  const isDays = bookingType === 'days'
+  const rate = isDays ? dailyRate : hourlyRate
+  const qty = isDays ? days : duration
+  const unit = isDays ? `dia${qty !== 1 ? 's' : ''}` : 'h'
   return (
     <div className="mt-5 pt-4 border-t border-gray-100 space-y-2 text-sm">
       <div className="flex justify-between text-gray-600">
-        <span>{formatCurrency(hourlyRate)} × {duration}h</span>
+        <span>{formatCurrency(rate)} × {qty}{unit}</span>
         <span>{formatCurrency(totalPrice)}</span>
       </div>
       <div className="flex justify-between font-bold text-gray-900 text-base">
@@ -65,7 +69,7 @@ export default function Payment() {
 
   if (!pendingBooking) return null
 
-  const { provider, service, date, time, duration, address, notes, totalPrice, hourlyRate, patientData } = pendingBooking
+  const { provider, service, date, time, duration, days, bookingType, address, notes, totalPrice, hourlyRate, dailyRate, patientData } = pendingBooking
 
   // Available payment methods based on country
   const availableMethods =
@@ -137,6 +141,8 @@ export default function Payment() {
           scheduled_date: date,
           scheduled_time: time,
           duration_hours: duration,
+          booking_type:   bookingType || 'hours',
+          days_count:     bookingType === 'days' ? days : null,
           total_price:    totalPrice,
           address:        address || null,
           notes:          notes || null,
@@ -243,7 +249,12 @@ export default function Payment() {
           </div>
           <div className="text-right">
             <p className="text-xl font-extrabold text-primary-600">{formatCurrency(totalPrice)}</p>
-            <p className="text-xs text-gray-400">{date ? formatDate(date) : ''} · {time} · {duration}h</p>
+            <p className="text-xs text-gray-400">
+              {date ? formatDate(date) : ''}
+              {bookingType === 'days'
+                ? ` · ${days} dia${days !== 1 ? 's' : ''}`
+                : ` · ${time} · ${duration}h`}
+            </p>
           </div>
         </div>
 
@@ -286,7 +297,7 @@ export default function Payment() {
                 Receberás uma notificação MB WAY para confirmar o pagamento.
               </p>
             </div>
-            <PriceSummary hourlyRate={hourlyRate} duration={duration} totalPrice={totalPrice} />
+            <PriceSummary bookingType={bookingType} hourlyRate={hourlyRate} dailyRate={dailyRate} duration={duration} days={days} totalPrice={totalPrice} />
           </div>
         )}
 
@@ -310,7 +321,7 @@ export default function Payment() {
                 Após confirmar, receberás os dados para transferência via PIX.
               </p>
             </div>
-            <PriceSummary hourlyRate={hourlyRate} duration={duration} totalPrice={totalPrice} />
+            <PriceSummary bookingType={bookingType} hourlyRate={hourlyRate} dailyRate={dailyRate} duration={duration} days={days} totalPrice={totalPrice} />
           </div>
         )}
 
@@ -376,7 +387,7 @@ export default function Payment() {
               </div>
             </div>
 
-            <PriceSummary hourlyRate={hourlyRate} duration={duration} totalPrice={totalPrice} />
+            <PriceSummary bookingType={bookingType} hourlyRate={hourlyRate} dailyRate={dailyRate} duration={duration} days={days} totalPrice={totalPrice} />
           </div>
         )}
 

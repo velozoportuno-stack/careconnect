@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Star, MapPin, Shield, CalendarDays, CreditCard } from 'lucide-react'
+import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import AvailabilityCalendar from '../components/availability/AvailabilityCalendar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { formatCurrency, formatRating } from '../utils/formatters'
+import { CLEANING_TYPE_LABELS } from '../utils/constants'
 
 const ROLE_LABEL = {
   caregiver: 'Cuidador(a) de Idosos',
@@ -53,7 +54,9 @@ export default function Profile() {
   // Booking form state
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
+  const [bookingType, setBookingType] = useState('hours') // 'hours' | 'days'
   const [duration, setDuration] = useState(2)
+  const [days, setDays] = useState(1)
   const [selectedService, setSelectedService] = useState(null)
   const [address, setAddress]   = useState('')
   const [notes, setNotes]       = useState('')
@@ -89,15 +92,15 @@ export default function Profile() {
     setLoading(false)
   }
 
-  const totalPrice = () => {
-    const svc = services.find((s) => s.id === selectedService) || services[0]
-    const rate = svc?.price_per_hour || profile?.hourly_rate || 0
-    return rate * duration
-  }
-
   const displayRate = () => {
+    if (bookingType === 'days') return profile?.daily_rate || 0
     const svc = services.find((s) => s.id === selectedService) || services[0]
     return svc?.price_per_hour || profile?.hourly_rate || 0
+  }
+
+  const totalPrice = () => {
+    if (bookingType === 'days') return (profile?.daily_rate || 0) * days
+    return displayRate() * duration
   }
 
   const handleBook = () => {
@@ -108,7 +111,8 @@ export default function Profile() {
     }
     const svcId = selectedService || (services[0]?.id ?? null)
     const svc = services.find((s) => s.id === svcId) || services[0]
-    const rate = svc?.price_per_hour || profile?.hourly_rate || 0
+    const rate = displayRate()
+    const qty = bookingType === 'days' ? days : duration
     setPendingBooking({
       providerId: id,
       provider: profile,
@@ -116,14 +120,19 @@ export default function Profile() {
       service: svc,
       date: selectedDate,
       time: selectedTime,
-      duration,
+      bookingType,
+      duration: bookingType === 'hours' ? duration : qty * 24,
+      days: bookingType === 'days' ? days : undefined,
       address,
       notes,
-      hourlyRate: rate,
-      totalPrice: rate * duration,
+      hourlyRate: bookingType === 'hours' ? rate : undefined,
+      dailyRate: bookingType === 'days' ? rate : undefined,
+      totalPrice: totalPrice(),
     })
     navigate('/booking')
   }
+
+  const isCarePro = ['caregiver', 'nurse'].includes(profile?.role)
 
   if (loading) {
     return (
@@ -194,12 +203,26 @@ export default function Profile() {
                     </div>
                   </div>
 
-                  {profile.hourly_rate && (
-                    <div className="mt-4">
-                      <span className="text-3xl font-extrabold text-primary-600">
-                        {formatCurrency(profile.hourly_rate)}
-                      </span>
-                      <span className="text-gray-400 text-sm">/hora</span>
+                  {(profile.hourly_rate || profile.daily_rate) && (
+                    <div className="mt-4 flex flex-wrap items-baseline gap-4">
+                      {profile.hourly_rate && (
+                        <div className="flex items-baseline gap-1">
+                          <Clock className="w-4 h-4 text-primary-400 self-center" />
+                          <span className="text-2xl font-extrabold text-primary-600">
+                            {formatCurrency(profile.hourly_rate)}
+                          </span>
+                          <span className="text-gray-400 text-sm">/hora</span>
+                        </div>
+                      )}
+                      {profile.daily_rate && (
+                        <div className="flex items-baseline gap-1">
+                          <CalendarDays className="w-4 h-4 text-primary-400 self-center" />
+                          <span className="text-2xl font-extrabold text-primary-600">
+                            {formatCurrency(profile.daily_rate)}
+                          </span>
+                          <span className="text-gray-400 text-sm">/dia</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -209,6 +232,30 @@ export default function Profile() {
                 <div className="mt-6 pt-5 border-t border-gray-100">
                   <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Sobre mim</h2>
                   <p className="text-gray-600 leading-relaxed">{profile.bio}</p>
+                </div>
+              )}
+
+              {/* Cleaning details */}
+              {profile.role === 'cleaner' && (profile.cleaning_types?.length || profile.cleaning_description) && (
+                <div className="mt-6 pt-5 border-t border-gray-100 space-y-3">
+                  {profile.cleaning_types?.length > 0 && (
+                    <div>
+                      <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Serviços oferecidos</h2>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.cleaning_types.map((type) => (
+                          <span key={type} className="badge-teal">
+                            {CLEANING_TYPE_LABELS[type] || type}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {profile.cleaning_description && (
+                    <div>
+                      <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Descrição</h2>
+                      <p className="text-gray-600 leading-relaxed text-sm">{profile.cleaning_description}</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -308,6 +355,28 @@ export default function Profile() {
               </div>
 
               <div className="space-y-4">
+                {/* Booking type toggle (care pros only) */}
+                {isCarePro && profile.daily_rate && profile.hourly_rate && (
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setBookingType('hours')}
+                      className={`py-2 rounded-lg text-sm font-semibold transition-all
+                        ${bookingType === 'hours' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      ⏱ Por horas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBookingType('days')}
+                      className={`py-2 rounded-lg text-sm font-semibold transition-all
+                        ${bookingType === 'days' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      📅 Por dias
+                    </button>
+                  </div>
+                )}
+
                 {/* Date */}
                 <div>
                   <label className="input-label">Data *</label>
@@ -320,37 +389,61 @@ export default function Profile() {
                   />
                 </div>
 
-                {/* Time */}
-                <div>
-                  <label className="input-label">Hora de início *</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={selectedTime}
-                    onChange={(e) => { setSelectedTime(e.target.value); setBookingError(null) }}
-                  />
-                </div>
-
-                {/* Duration */}
-                <div>
-                  <label className="input-label">Duração (horas)</label>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setDuration((d) => Math.max(1, d - 1))}
-                      className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
-                                 hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
-                    >−</button>
-                    <span className="text-xl font-bold text-gray-900 w-8 text-center">{duration}</span>
-                    <button
-                      type="button"
-                      onClick={() => setDuration((d) => Math.min(12, d + 1))}
-                      className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
-                                 hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
-                    >+</button>
-                    <span className="text-sm text-gray-400">hora{duration !== 1 ? 's' : ''}</span>
+                {/* Time (hours mode only) */}
+                {bookingType === 'hours' && (
+                  <div>
+                    <label className="input-label">Hora de início *</label>
+                    <input
+                      type="time"
+                      className="input-field"
+                      value={selectedTime}
+                      onChange={(e) => { setSelectedTime(e.target.value); setBookingError(null) }}
+                    />
                   </div>
-                </div>
+                )}
+
+                {/* Duration (hours) or Days */}
+                {bookingType === 'hours' ? (
+                  <div>
+                    <label className="input-label">Duração (horas)</label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setDuration((d) => Math.max(1, d - 1))}
+                        className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
+                                   hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
+                      >−</button>
+                      <span className="text-xl font-bold text-gray-900 w-8 text-center">{duration}</span>
+                      <button
+                        type="button"
+                        onClick={() => setDuration((d) => Math.min(12, d + 1))}
+                        className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
+                                   hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
+                      >+</button>
+                      <span className="text-sm text-gray-400">hora{duration !== 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="input-label">Número de dias</label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setDays((d) => Math.max(1, d - 1))}
+                        className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
+                                   hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
+                      >−</button>
+                      <span className="text-xl font-bold text-gray-900 w-8 text-center">{days}</span>
+                      <button
+                        type="button"
+                        onClick={() => setDays((d) => Math.min(30, d + 1))}
+                        className="w-10 h-10 rounded-xl border border-gray-200 bg-white font-bold text-gray-700
+                                   hover:border-primary-400 hover:bg-primary-50 transition-all flex items-center justify-center"
+                      >+</button>
+                      <span className="text-sm text-gray-400">dia{days !== 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Address */}
                 <div>
@@ -380,7 +473,10 @@ export default function Profile() {
                 {(displayRate() > 0) && (
                   <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
                     <div className="flex justify-between text-gray-600">
-                      <span>{formatCurrency(displayRate())} × {duration}h</span>
+                      {bookingType === 'days'
+                        ? <span>{formatCurrency(displayRate())} × {days} dia{days !== 1 ? 's' : ''}</span>
+                        : <span>{formatCurrency(displayRate())} × {duration}h</span>
+                      }
                       <span className="font-medium">{formatCurrency(totalPrice())}</span>
                     </div>
                     <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-2 mt-2">
