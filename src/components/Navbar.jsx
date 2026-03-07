@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { Heart, Search, LayoutDashboard, LogOut, Menu, X, UserCircle } from 'lucide-react'
+import { Heart, Search, LayoutDashboard, LogOut, Menu, X, UserCircle, ArrowLeftRight } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
 
@@ -12,9 +12,25 @@ const ROLE_LABEL = {
   admin:     'Admin',
 }
 
+// True if the role is a professional (provider) role
+const isProfRole = (r) => r && r !== 'client' && r !== 'admin'
+
 export default function Navbar() {
-  const { user, userRole } = useAppStore()
+  const { user, userRole, secondaryRole, activeRole, setActiveRole } = useAppStore()
   const { signOut } = useAuth()
+
+  // Role switcher: shown when user has both a client role and a professional role
+  const hasDualRoles = (
+    (userRole === 'client' && secondaryRole && isProfRole(secondaryRole)) ||
+    (isProfRole(userRole) && secondaryRole === 'client')
+  )
+  const isActingAsClient = activeRole === 'client'
+
+  const handleRoleSwitch = () => {
+    const next = isActingAsClient ? (secondaryRole || userRole) : 'client'
+    setActiveRole(next)
+    navigate('/dashboard')
+  }
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -64,13 +80,26 @@ export default function Navbar() {
                 <UserCircle className="w-5 h-5 text-gray-400" />
                 <span className="text-sm text-gray-700 font-medium">
                   Olá, {user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0]}
-                  {userRole && (
+                  {activeRole && (
                     <span className="ml-1 text-xs text-primary-600 font-normal">
-                      · {ROLE_LABEL[userRole] || userRole}
+                      · {ROLE_LABEL[activeRole] || activeRole}
                     </span>
                   )}
                 </span>
               </div>
+
+              {hasDualRoles && (
+                <button
+                  onClick={handleRoleSwitch}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full
+                             border border-primary-200 bg-primary-50 text-primary-700
+                             hover:bg-primary-100 transition-colors"
+                  title="Trocar perfil ativo"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  {isActingAsClient ? 'Modo Profissional' : 'Modo Cliente'}
+                </button>
+              )}
 
               <button
                 onClick={handleSignOut}
@@ -120,6 +149,15 @@ export default function Navbar() {
                 className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2">
                 <LayoutDashboard className="w-4 h-4" /> Painel
               </Link>
+              {hasDualRoles && (
+                <button
+                  onClick={() => { setMobileOpen(false); handleRoleSwitch() }}
+                  className="flex items-center gap-2 text-sm font-semibold text-primary-700 py-2 text-left"
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                  {isActingAsClient ? 'Entrar como Profissional' : 'Entrar como Cliente'}
+                </button>
+              )}
               <button onClick={handleSignOut}
                 className="flex items-center gap-2 text-sm font-medium text-red-500 py-2 text-left">
                 <LogOut className="w-4 h-4" /> Sair

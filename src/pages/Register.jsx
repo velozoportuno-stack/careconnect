@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { COUNTRIES, CITIES } from '../utils/locations'
 import { CLEANING_TYPES } from '../utils/constants'
+import { useAppStore } from '../store/appStore'
 import Navbar from '../components/Navbar'
 
 // Traduz mensagens de erro do Supabase para português
@@ -36,14 +37,25 @@ const SERVICE_TYPES = [
 
 export default function Register() {
   const { signUp } = useAuth()
+  const { user, userRole, setSecondaryRole, setActiveRole } = useAppStore()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
+  // ?add_role=professional → logged-in client wants to add a professional profile
+  const addRoleParam = searchParams.get('add_role')
+  const isAddingRole = !!addRoleParam && !!user
+
   const roleParam   = searchParams.get('role')
-  const initialRole = roleParam === 'professional' ? 'professional' : roleParam === 'client' ? 'client' : null
+  const initialRole = isAddingRole ? 'professional'
+    : roleParam === 'professional' ? 'professional'
+    : roleParam === 'client' ? 'client'
+    : null
   const [step, setStep] = useState(initialRole ? 'form' : 'role')
   const [userType, setUserType] = useState(
-    initialRole === 'professional' ? 'professional' : initialRole === 'client' ? 'client' : null
+    isAddingRole ? 'professional'
+    : initialRole === 'professional' ? 'professional'
+    : initialRole === 'client' ? 'client'
+    : null
   )
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -85,6 +97,49 @@ export default function Register() {
     setLoading(true)
     setError(null)
 
+    // ── Mode: add professional role to existing account ──
+    if (isAddingRole) {
+      const profRole = values.service_type
+      const updates = {
+        secondary_role: profRole,
+        hourly_rate:    parseFloat(values.hourly_rate) || null,
+        bio:            values.bio || null,
+        ...(profRole === 'nurse' && {
+          nursing_license:         values.nursing_license || null,
+          nursing_license_country: values.country || null,
+        }),
+        ...(profRole === 'cleaner' && {
+          cleaning_types:       cleaningTypesSelected.length ? cleaningTypesSelected : null,
+          cleaning_description: values.cleaning_description || null,
+        }),
+      }
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', user.id)
+
+      if (updateErr) {
+        setError('Erro ao guardar o perfil profissional. Tenta novamente.')
+        setLoading(false)
+        return
+      }
+
+      if (avatarFileRef.current?.files?.[0]) {
+        const avatarUrl = await uploadAvatar(user.id)
+        if (avatarUrl) {
+          await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', user.id)
+        }
+      }
+
+      // Update store so switcher appears immediately
+      setSecondaryRole(profRole)
+      setActiveRole(profRole)
+      setLoading(false)
+      navigate('/dashboard')
+      return
+    }
+
+    // ── Normal registration ──
     const role = userType === 'client' ? 'client' : values.service_type
     const userData = {
       full_name:   values.full_name,

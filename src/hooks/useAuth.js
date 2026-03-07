@@ -3,14 +3,14 @@ import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 
 export const useAuth = () => {
-  const { user, setUser, setUserRole, clearUser } = useAppStore()
+  const { user, setUser, setUserRole, setSecondaryRole, clearUser } = useAppStore()
 
   useEffect(() => {
     // Verificar sessão ativa
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user)
-        fetchUserRole(session.user.id)
+        fetchUserProfile(session.user.id)
       }
     })
 
@@ -19,7 +19,7 @@ export const useAuth = () => {
       async (event, session) => {
         if (session?.user) {
           setUser(session.user)
-          fetchUserRole(session.user.id)
+          fetchUserProfile(session.user.id)
         } else {
           clearUser()
         }
@@ -29,13 +29,16 @@ export const useAuth = () => {
     return () => subscription.unsubscribe()
   }, [])
 
-  const fetchUserRole = async (userId) => {
+  const fetchUserProfile = async (userId) => {
     const { data } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, secondary_role')
       .eq('id', userId)
       .single()
-    if (data?.role) setUserRole(data.role)
+    if (data?.role) {
+      if (data.secondary_role) setSecondaryRole(data.secondary_role)
+      setUserRole(data.role)
+    }
   }
 
   const signIn = async (email, password) => {
