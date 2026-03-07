@@ -79,6 +79,14 @@ export default function Profile() {
         .order('created_at', { ascending: false })
         .limit(5),
     ])
+
+    // Generate a professional ID on first view if one doesn't exist
+    if (prof && prof.role === 'professional' && !prof.professional_id_number) {
+      const newId = Math.floor(100000 + Math.random() * 900000)
+      await supabase.from('profiles').update({ professional_id_number: newId }).eq('id', id)
+      prof.professional_id_number = newId
+    }
+
     setProfile(prof)
     setServices(svc || [])
     setReviews(rev || [])
