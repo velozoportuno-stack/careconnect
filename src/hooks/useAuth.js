@@ -56,8 +56,15 @@ export const useAuth = () => {
     const {
       service_type, nursing_license, nursing_license_country,
       cleaning_types, cleaning_description, daily_rate,
+      custom_profession,
       ...coreData
     } = userData
+
+    // Generate a unique 6-digit ID for professionals
+    const professionalIdNumber =
+      userData.role === 'professional'
+        ? Math.floor(100000 + Math.random() * 900000)
+        : undefined
 
     // 1. Save core profile fields — role MUST be saved here.
     // The handle_new_user trigger may have already inserted a row with
@@ -65,7 +72,12 @@ export const useAuth = () => {
     const { error: coreErr } = await supabase
       .from('profiles')
       .upsert(
-        { id: data.user.id, email, ...coreData },
+        {
+          id: data.user.id,
+          email,
+          ...coreData,
+          ...(professionalIdNumber && { professional_id_number: professionalIdNumber }),
+        },
         { onConflict: 'id' }
       )
 
@@ -84,6 +96,7 @@ export const useAuth = () => {
       ...(cleaning_types?.length   && { cleaning_types }),
       ...(cleaning_description     && { cleaning_description }),
       ...(daily_rate               && { daily_rate }),
+      ...(custom_profession        && { custom_profession }),
     }
     if (Object.keys(extended).length > 0) {
       await supabase.from('profiles').update(extended).eq('id', data.user.id)

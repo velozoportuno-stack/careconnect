@@ -1,29 +1,21 @@
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Search as SearchIcon, Star, MapPin, SlidersHorizontal, ChevronRight } from 'lucide-react'
+import { Search as SearchIcon, Star, MapPin, ChevronRight, Hash } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { formatCurrency, formatRating } from '../utils/formatters'
 import { COUNTRIES, CITIES } from '../utils/locations'
-import { CLEANING_TYPE_LABELS } from '../utils/constants'
+import { CLEANING_TYPE_LABELS, SERVICE_TYPES, SERVICE_TYPE_LABELS } from '../utils/constants'
 import Navbar from '../components/Navbar'
 
-const CATEGORIES = [
-  { value: 'Todos',     label: 'Todos',                 icon: '🔍' },
-  { value: 'caregiver', label: 'Cuidador de Idosos',    icon: '🧓' },
-  { value: 'nurse',     label: 'Enfermeiro(a)',          icon: '🩺' },
-  { value: 'cleaner',   label: 'Assistente de Limpeza', icon: '🧹' },
-]
-
-const CATEGORY_LABEL = {
-  caregiver: 'Cuidador(a) de Idosos',
-  nurse:     'Enfermeiro(a)',
-  cleaner:   'Assistente de Limpeza',
-}
-
 const CATEGORY_BADGE = {
-  caregiver: 'badge-amber',
-  nurse:     'badge-blue',
-  cleaner:   'badge-teal',
+  nurse:            'badge-blue',
+  auxiliary_nurse:  'badge-blue',
+  caregiver:        'badge-amber',
+  physiotherapist:  'badge-blue',
+  psychologist:     'badge-blue',
+  nutritionist:     'badge-blue',
+  personal_trainer: 'badge-amber',
+  cleaner:          'badge-teal',
 }
 
 function StarRating({ rating, total }) {
@@ -53,37 +45,40 @@ function normalizeService(svc) {
   const p = svc.provider || {}
   return {
     serviceId: svc.id, providerId: svc.provider_id || p.id,
-    title: svc.title, category: svc.category || p.role,
+    title: svc.title, category: svc.category || p.service_type,
     bio: svc.bio || svc.description, price: svc.price_per_hour,
     dailyRate: p.daily_rate || null,
     cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
     rating: p.rating || 0, totalReviews: p.total_reviews || 0,
     city: p.city,
+    professionalIdNumber: p.professional_id_number || null,
   }
 }
 
 function normalizeProfile(p) {
   return {
     serviceId: null, providerId: p.id,
-    title: CATEGORY_LABEL[p.service_type] || 'Profissional', category: p.service_type,
+    title: SERVICE_TYPE_LABELS[p.service_type] || 'Profissional', category: p.service_type,
     bio: p.bio, price: p.hourly_rate,
     dailyRate: p.daily_rate || null,
     cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
     rating: p.rating || 0, totalReviews: p.total_reviews || 0,
     city: p.city,
+    professionalIdNumber: p.professional_id_number || null,
   }
 }
 
 export default function Search() {
   const [searchParams] = useSearchParams()
-  const [items, setItems]       = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [nameQuery, setName]    = useState('')
-  const [country, setCountry]   = useState('PT')
-  const [city, setCity]         = useState('')
-  const [category, setCategory] = useState(() => searchParams.get('category') || 'Todos')
+  const [items, setItems]         = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [nameQuery, setName]      = useState('')
+  const [idQuery, setIdQuery]     = useState('')
+  const [country, setCountry]     = useState('PT')
+  const [city, setCity]           = useState('')
+  const [category, setCategory]   = useState(() => searchParams.get('category') || 'Todos')
 
   useEffect(() => { fetchItems() }, [category])
 
@@ -91,7 +86,7 @@ export default function Search() {
     setLoading(true)
     let q = supabase
       .from('provider_services')
-      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, total_reviews, city, is_active, daily_rate, cleaning_types)')
+      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, total_reviews, city, is_active, daily_rate, cleaning_types, professional_id_number)')
       .eq('is_available', true)
     if (category !== 'Todos') q = q.eq('category', category)
 
@@ -100,10 +95,10 @@ export default function Search() {
     if (!error && data?.length > 0) {
       setItems(data.filter((s) => s.provider?.is_active !== false).map(normalizeService))
     } else {
-      // Fallback to profiles (before migration runs)
+      // Fallback to profiles
       let pq = supabase
         .from('profiles')
-        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role, service_type')
+        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role, service_type, professional_id_number')
         .eq('role', 'professional').eq('is_active', true)
       if (category !== 'Todos') pq = pq.eq('service_type', category)
       const { data: pd } = await pq.order('rating', { ascending: false })
@@ -112,7 +107,13 @@ export default function Search() {
     setLoading(false)
   }
 
+  // If user typed a 6-digit ID, search by that
+  const idSearchActive = /^\d{6}$/.test(idQuery.trim())
+
   const filtered = items.filter((item) => {
+    if (idSearchActive) {
+      return String(item.professionalIdNumber) === idQuery.trim()
+    }
     const matchName = !nameQuery || item.providerName?.toLowerCase().includes(nameQuery.toLowerCase())
     const matchCity = !city || item.city?.toLowerCase() === city.toLowerCase()
     return matchName && matchCity
@@ -125,6 +126,27 @@ export default function Search() {
       <div className="bg-gradient-to-r from-primary-600 to-primary-700 py-10 px-4">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-2xl md:text-3xl font-extrabold text-white mb-6">Encontra o profissional ideal</h1>
+
+          {/* ID search */}
+          <div className="mb-3">
+            <div className="relative max-w-xs">
+              <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                maxLength={6}
+                inputMode="numeric"
+                placeholder="Buscar por ID do profissional (6 dígitos)"
+                className="input-field pl-10 py-3 rounded-xl shadow-sm text-sm w-full"
+                value={idQuery}
+                onChange={(e) => setIdQuery(e.target.value.replace(/\D/g, ''))}
+              />
+            </div>
+            {idQuery.length > 0 && !idSearchActive && (
+              <p className="text-white/70 text-xs mt-1">Digite os 6 dígitos completos do ID</p>
+            )}
+          </div>
+
+          {/* Name / country / city filters */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -145,21 +167,41 @@ export default function Search() {
       </div>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center gap-2 mb-6 flex-wrap">
-          <SlidersHorizontal className="w-4 h-4 text-gray-400" />
-          {CATEGORIES.map((cat) => (
-            <button key={cat.value} onClick={() => setCategory(cat.value)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all
-                ${category === cat.value ? 'bg-primary-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:border-primary-300 hover:text-primary-700'}`}>
-              <span>{cat.icon}</span>{cat.label}
+        {/* Category filter — dropdown with all service types */}
+        <div className="flex items-center gap-3 mb-6 flex-wrap">
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="input-field py-2 px-4 rounded-full text-sm font-medium border border-gray-200 shadow-sm max-w-xs"
+          >
+            <option value="Todos">🔍 Todos os profissionais</option>
+            <optgroup label="Saúde e Cuidado">
+              {SERVICE_TYPES.filter((t) => t.group === 'health').map((t) => (
+                <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Serviços Gerais">
+              {SERVICE_TYPES.filter((t) => t.group === 'general' && t.value !== 'other').map((t) => (
+                <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+              ))}
+            </optgroup>
+          </select>
+          {category !== 'Todos' && (
+            <button
+              onClick={() => setCategory('Todos')}
+              className="text-xs text-primary-600 hover:underline font-medium"
+            >
+              × Limpar filtro
             </button>
-          ))}
+          )}
         </div>
 
         {!loading && (
           <p className="text-sm text-gray-500 mb-5">
-            {filtered.length} serviço{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}
-            {city ? ` em ${city}` : ''}
+            {idSearchActive
+              ? `Pesquisa por ID: ${idQuery}`
+              : `${filtered.length} profissional${filtered.length !== 1 ? 'is' : ''} encontrado${filtered.length !== 1 ? 's' : ''}${city ? ` em ${city}` : ''}`
+            }
           </p>
         )}
 
@@ -179,9 +221,13 @@ export default function Search() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24">
-            <div className="text-5xl mb-4">🔍</div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-1">Nenhum serviço encontrado</h3>
-            <p className="text-gray-400 text-sm">Tenta outros filtros ou remove o filtro de cidade.</p>
+            <div className="text-5xl mb-4">{idSearchActive ? '🔍' : '🔍'}</div>
+            <h3 className="text-lg font-semibold text-gray-700 mb-1">
+              {idSearchActive ? `Nenhum profissional com ID ${idQuery}` : 'Nenhum profissional encontrado'}
+            </h3>
+            <p className="text-gray-400 text-sm">
+              {idSearchActive ? 'Verifica se o ID está correcto.' : 'Tenta outros filtros ou remove o filtro de cidade.'}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -194,8 +240,13 @@ export default function Search() {
                       <div>
                         <p className="font-bold text-gray-900 leading-tight text-sm">{item.providerName}</p>
                         <span className={`${CATEGORY_BADGE[item.category] || 'badge-gray'} text-xs mt-0.5`}>
-                          {CATEGORY_LABEL[item.category] || item.category}
+                          {SERVICE_TYPE_LABELS[item.category] || item.category || 'Profissional'}
                         </span>
+                        {item.professionalIdNumber && (
+                          <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-0.5">
+                            <Hash className="w-3 h-3" />{item.professionalIdNumber}
+                          </p>
+                        )}
                       </div>
                       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
                         {item.price && (
