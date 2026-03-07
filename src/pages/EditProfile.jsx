@@ -2,19 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Camera, Upload, Save, ChevronLeft, User, CreditCard,
-  CheckCircle, AlertCircle, Loader2, MapPin, CalendarDays,
+  CheckCircle, AlertCircle, Loader2, MapPin, CalendarDays, Hash,
 } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { COUNTRIES, CITIES } from '../utils/locations'
-import { CLEANING_TYPES } from '../utils/constants'
-
-const SERVICE_TYPES = [
-  { value: 'caregiver', label: 'Cuidador(a) de Idosos', icon: '🧓' },
-  { value: 'nurse',     label: 'Enfermeiro(a)',          icon: '🩺' },
-  { value: 'cleaner',   label: 'Assistente de Limpeza',  icon: '🧹' },
-]
+import { CLEANING_TYPES, SERVICE_TYPES, LICENSE_REQUIRED, getLicenseLabel } from '../utils/constants'
 
 const DAYS_SCHEDULE = [
   { day: 1, label: 'Segunda-feira' },
@@ -170,13 +164,16 @@ export default function EditProfile() {
         .from('profiles')
         .update({
           ...baseUpdate,
-          bank_account_type:    profile.bank_account_type    ?? null,
-          bank_account_value:   profile.bank_account_value   ?? null,
-          bank_account_name:    profile.bank_account_name    ?? null,
-          address:              profile.address              ?? null,
-          daily_rate:           profile.daily_rate ? parseFloat(profile.daily_rate) : null,
-          cleaning_types:       profile.cleaning_types       ?? null,
-          cleaning_description: profile.cleaning_description ?? null,
+          bank_account_type:       profile.bank_account_type    ?? null,
+          bank_account_value:      profile.bank_account_value   ?? null,
+          bank_account_name:       profile.bank_account_name    ?? null,
+          address:                 profile.address              ?? null,
+          daily_rate:              profile.daily_rate ? parseFloat(profile.daily_rate) : null,
+          cleaning_types:          profile.cleaning_types       ?? null,
+          cleaning_description:    profile.cleaning_description ?? null,
+          nursing_license:         profile.nursing_license      ?? null,
+          nursing_license_country: profile.country              ?? 'PT',
+          custom_profession:       profile.custom_profession    ?? null,
         })
         .eq('id', user.id)
 
@@ -336,29 +333,68 @@ export default function EditProfile() {
 
               {isProvider && (
                 <>
-                  <div>
-                    <label className="input-label">Tipo de serviço</label>
-                    <div className="grid grid-cols-3 gap-2 mt-1">
-                      {SERVICE_TYPES.map((t) => (
-                        <label
-                          key={t.value}
-                          className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 cursor-pointer transition-all
-                                      ${profile?.service_type === t.value
-                                        ? 'border-primary-500 bg-primary-50'
-                                        : 'border-gray-200 bg-white hover:border-gray-300'}`}
-                        >
-                          <input
-                            type="radio"
-                            className="sr-only"
-                            checked={profile?.service_type === t.value}
-                            onChange={() => setProfile((p) => ({ ...p, service_type: t.value }))}
-                          />
-                          <span className="text-2xl">{t.icon}</span>
-                          <span className="text-xs font-medium text-gray-700 text-center leading-tight">{t.label}</span>
-                        </label>
-                      ))}
+                  {/* Professional ID — read-only */}
+                  {profile?.professional_id_number && (
+                    <div className="flex items-center gap-2 bg-primary-50 border border-primary-100 rounded-xl px-4 py-3">
+                      <Hash className="w-4 h-4 text-primary-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-primary-600 font-medium uppercase tracking-wide">ID do Profissional</p>
+                        <p className="text-lg font-extrabold text-primary-700 tracking-widest">
+                          {profile.professional_id_number}
+                        </p>
+                      </div>
                     </div>
+                  )}
+
+                  {/* Profession / service type */}
+                  <div>
+                    <label className="input-label">Profissão / Tipo de serviço</label>
+                    <select
+                      className="input-field"
+                      value={profile?.service_type || ''}
+                      onChange={(e) => setProfile((p) => ({ ...p, service_type: e.target.value }))}
+                    >
+                      <option value="" disabled>Seleciona a tua profissão...</option>
+                      <optgroup label="── Saúde e Cuidado ──">
+                        {SERVICE_TYPES.filter((t) => t.group === 'health').map((t) => (
+                          <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="── Serviços Gerais ──">
+                        {SERVICE_TYPES.filter((t) => t.group === 'general').map((t) => (
+                          <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                        ))}
+                      </optgroup>
+                    </select>
                   </div>
+
+                  {/* "Outro" — custom profession name */}
+                  {profile?.service_type === 'other' && (
+                    <div>
+                      <label className="input-label">Qual é a tua profissão?</label>
+                      <input
+                        className="input-field"
+                        placeholder="Ex: Técnico de ar condicionado..."
+                        value={profile?.custom_profession || ''}
+                        onChange={(e) => setProfile((p) => ({ ...p, custom_profession: e.target.value }))}
+                      />
+                    </div>
+                  )}
+
+                  {/* License number — health professions only */}
+                  {LICENSE_REQUIRED.has(profile?.service_type) && (
+                    <div>
+                      <label className="input-label">
+                        {getLicenseLabel(profile?.country || country, profile?.service_type)}
+                      </label>
+                      <input
+                        className="input-field"
+                        placeholder={profile?.country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
+                        value={profile?.nursing_license || ''}
+                        onChange={(e) => setProfile((p) => ({ ...p, nursing_license: e.target.value }))}
+                      />
+                    </div>
+                  )}
 
                   {/* Hourly rate + daily rate side by side for care roles */}
                   <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile?.service_type) ? 'grid-cols-2' : 'grid-cols-1'}`}>
