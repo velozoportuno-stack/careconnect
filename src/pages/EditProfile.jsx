@@ -2,18 +2,34 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Camera, Upload, Save, ChevronLeft, User, CreditCard,
-  CheckCircle, AlertCircle, Loader2, MapPin,
+  CheckCircle, AlertCircle, Loader2, MapPin, CalendarDays,
 } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { COUNTRIES, CITIES } from '../utils/locations'
+import { CLEANING_TYPES } from '../utils/constants'
 
 const SERVICE_TYPES = [
   { value: 'caregiver', label: 'Cuidador(a) de Idosos', icon: '🧓' },
   { value: 'nurse',     label: 'Enfermeiro(a)',          icon: '🩺' },
   { value: 'cleaner',   label: 'Assistente de Limpeza',  icon: '🧹' },
 ]
+
+const DAYS_SCHEDULE = [
+  { day: 1, label: 'Segunda-feira' },
+  { day: 2, label: 'Terça-feira' },
+  { day: 3, label: 'Quarta-feira' },
+  { day: 4, label: 'Quinta-feira' },
+  { day: 5, label: 'Sexta-feira' },
+  { day: 6, label: 'Sábado' },
+  { day: 0, label: 'Domingo' },
+]
+
+const TIME_OPTIONS = Array.from({ length: 25 }, (_, i) => {
+  const h = String(i).padStart(2, '0')
+  return `${h}:00`
+})
 
 function completionPercent(profile) {
   const fields = ['avatar_url', 'bio', 'hourly_rate', 'city', 'bank_account_value']
@@ -35,6 +51,14 @@ export default function EditProfile() {
   const [error, setError]           = useState(null)
   const [country, setCountry]       = useState('PT')
 
+  // Availability tab state
+  const [schedule, setSchedule] = useState(
+    DAYS_SCHEDULE.map((d) => ({ ...d, active: false, start: '09:00', end: '17:00' }))
+  )
+  const [availLoading, setAvailLoading] = useState(false)
+  const [availSaving, setAvailSaving]   = useState(false)
+  const [availSuccess, setAvailSuccess] = useState(false)
+
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
@@ -47,6 +71,69 @@ export default function EditProfile() {
       setCountry(data.country || 'PT')
     }
     setLoading(false)
+  }
+
+  // Load availability when switching to that tab
+  useEffect(() => {
+    if (tab !== 'availability' || !user) return
+    loadAvailability()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadAvailability() {
+    setAvailLoading(true)
+    const { data } = await supabase
+      .from('professional_availability')
+      .select('*')
+      .eq('professional_id', user.id)
+      .eq('is_active', true)
+
+    if (data) {
+      setSchedule((prev) =>
+        prev.map((day) => {
+          const found = data.find((d) => d.day_of_week === day.day)
+          return found
+            ? { ...day, active: true, start: found.start_time.slice(0, 5), end: found.end_time.slice(0, 5) }
+            : { ...day, active: false }
+        })
+      )
+    }
+    setAvailLoading(false)
+  }
+
+  async function handleSaveAvailability() {
+    setAvailSaving(true)
+    setError(null)
+    try {
+      // Replace all entries for this professional
+      await supabase
+        .from('professional_availability')
+        .delete()
+        .eq('professional_id', user.id)
+
+      const toInsert = schedule
+        .filter((d) => d.active)
+        .map((d) => ({
+          professional_id: user.id,
+          day_of_week:     d.day,
+          start_time:      d.start,
+          end_time:        d.end,
+          is_active:       true,
+        }))
+
+      if (toInsert.length) {
+        const { error: insErr } = await supabase
+          .from('professional_availability')
+          .insert(toInsert)
+        if (insErr) throw new Error(insErr.message)
+      }
+
+      setAvailSuccess(true)
+      setTimeout(() => setAvailSuccess(false), 3000)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAvailSaving(false)
+    }
   }
 
   async function uploadAvatar() {
@@ -83,10 +170,13 @@ export default function EditProfile() {
         .from('profiles')
         .update({
           ...baseUpdate,
-          bank_account_type:  profile.bank_account_type  ?? null,
-          bank_account_value: profile.bank_account_value ?? null,
-          bank_account_name:  profile.bank_account_name  ?? null,
-          address:            profile.address            ?? null,
+          bank_account_type:    profile.bank_account_type    ?? null,
+          bank_account_value:   profile.bank_account_value   ?? null,
+          bank_account_name:    profile.bank_account_name    ?? null,
+          address:              profile.address              ?? null,
+          daily_rate:           profile.daily_rate ? parseFloat(profile.daily_rate) : null,
+          cleaning_types:       profile.cleaning_types       ?? null,
+          cleaning_description: profile.cleaning_description ?? null,
         })
         .eq('id', user.id)
 
@@ -178,8 +268,9 @@ export default function EditProfile() {
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
           {[
-            { key: 'profile', label: 'Dados do Perfil',   Icon: User },
-            { key: 'bank',    label: 'Conta Bancária',     Icon: CreditCard },
+            { key: 'profile',      label: 'Perfil',          Icon: User },
+            { key: 'bank',         label: 'Conta Bancária',   Icon: CreditCard },
+            ...(isProvider ? [{ key: 'availability', label: 'Disponibilidade', Icon: CalendarDays }] : []),
           ].map(({ key, label, Icon }) => (
             <button
               key={key}
@@ -269,16 +360,33 @@ export default function EditProfile() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="input-label">Preço por hora (€)</label>
-                    <input
-                      type="number"
-                      step="0.50"
-                      min="1"
-                      className="input-field"
-                      value={profile?.hourly_rate || ''}
-                      onChange={(e) => setProfile((p) => ({ ...p, hourly_rate: e.target.value }))}
-                    />
+                  {/* Hourly rate + daily rate side by side for care roles */}
+                  <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile?.role) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div>
+                      <label className="input-label">⏱ Valor por hora (€)</label>
+                      <input
+                        type="number"
+                        step="0.50"
+                        min="1"
+                        className="input-field"
+                        value={profile?.hourly_rate || ''}
+                        onChange={(e) => setProfile((p) => ({ ...p, hourly_rate: e.target.value }))}
+                      />
+                    </div>
+                    {['caregiver', 'nurse'].includes(profile?.role) && (
+                      <div>
+                        <label className="input-label">📅 Valor por dia (€)</label>
+                        <input
+                          type="number"
+                          step="1"
+                          min="1"
+                          className="input-field"
+                          placeholder="Ex: 80"
+                          value={profile?.daily_rate || ''}
+                          onChange={(e) => setProfile((p) => ({ ...p, daily_rate: e.target.value }))}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -291,6 +399,60 @@ export default function EditProfile() {
                       onChange={(e) => setProfile((p) => ({ ...p, bio: e.target.value }))}
                     />
                   </div>
+
+                  {/* Cleaning-specific fields */}
+                  {profile?.role === 'cleaner' && (
+                    <>
+                      <div>
+                        <label className="input-label">Tipos de limpeza oferecida</label>
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          {CLEANING_TYPES.map((type) => {
+                            const checked = (profile?.cleaning_types || []).includes(type.value)
+                            return (
+                              <label
+                                key={type.value}
+                                className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all
+                                            ${checked ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}
+                              >
+                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
+                                                 ${checked ? 'bg-primary-500 border-primary-500' : 'border-gray-300'}`}>
+                                  {checked && (
+                                    <svg viewBox="0 0 10 8" className="w-2.5 h-2" fill="none">
+                                      <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  )}
+                                </div>
+                                <span className="text-xs font-medium text-gray-700">{type.label}</span>
+                                <input
+                                  type="checkbox"
+                                  className="sr-only"
+                                  checked={checked}
+                                  onChange={(e) =>
+                                    setProfile((p) => ({
+                                      ...p,
+                                      cleaning_types: e.target.checked
+                                        ? [...(p.cleaning_types || []), type.value]
+                                        : (p.cleaning_types || []).filter((v) => v !== type.value),
+                                    }))
+                                  }
+                                />
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="input-label">Descrição dos serviços de limpeza</label>
+                        <textarea
+                          rows={3}
+                          className="input-field resize-none"
+                          placeholder="Equipamentos, metodologia, o que está incluído..."
+                          value={profile?.cleaning_description || ''}
+                          onChange={(e) => setProfile((p) => ({ ...p, cleaning_description: e.target.value }))}
+                        />
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
@@ -344,49 +506,69 @@ export default function EditProfile() {
         )}
 
         {/* Bank account tab */}
-        {tab === 'bank' && (
+        {tab === 'bank' && (() => {
+          // Derive bank type from country — PT=IBAN, BR=PIX, others=user choice
+          const countryBankType =
+            profile?.country === 'PT' ? 'iban' :
+            profile?.country === 'BR' ? 'pix'  : null
+          const effectiveType = countryBankType ?? profile?.bank_account_type
+
+          return (
           <div className="card space-y-5">
             <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
               <CreditCard className="w-4 h-4 flex-shrink-0" />
-              Os dados bancários são usados para transferir os seus pagamentos via Stripe Connect.
+              Os dados bancários são usados para transferir os seus pagamentos.
               Os dados são encriptados e nunca partilhados com clientes.
             </div>
 
-            <div>
-              <label className="input-label">Tipo de conta</label>
-              <div className="grid grid-cols-2 gap-3 mt-1">
-                {[
-                  { value: 'iban', label: '🏦 IBAN', desc: 'Portugal / Europa' },
-                  { value: 'pix',  label: '⚡ Chave PIX', desc: 'Brasil' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`flex flex-col gap-0.5 p-4 rounded-xl border-2 cursor-pointer transition-all
-                                ${profile?.bank_account_type === opt.value
-                                  ? 'border-primary-500 bg-primary-50'
-                                  : 'border-gray-200 hover:border-gray-300'}`}
-                  >
-                    <input
-                      type="radio"
-                      className="sr-only"
-                      checked={profile?.bank_account_type === opt.value}
-                      onChange={() => setProfile((p) => ({ ...p, bank_account_type: opt.value, bank_account_value: '' }))}
-                    />
-                    <span className="font-semibold text-gray-800">{opt.label}</span>
-                    <span className="text-xs text-gray-500">{opt.desc}</span>
-                  </label>
-                ))}
+            {/* Country-locked type hint */}
+            {countryBankType && (
+              <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+                <span>{countryBankType === 'iban' ? '🏦' : '⚡'}</span>
+                {countryBankType === 'iban'
+                  ? 'Conta IBAN — opção disponível para Portugal.'
+                  : 'Chave PIX — opção disponível para o Brasil.'}
               </div>
-            </div>
+            )}
 
-            {profile?.bank_account_type === 'iban' && (
+            {/* Type selector — only for non-PT/BR countries */}
+            {!countryBankType && (
+              <div>
+                <label className="input-label">Tipo de conta</label>
+                <div className="grid grid-cols-2 gap-3 mt-1">
+                  {[
+                    { value: 'iban', label: '🏦 IBAN',      desc: 'Portugal / Europa' },
+                    { value: 'pix',  label: '⚡ Chave PIX', desc: 'Brasil' },
+                  ].map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex flex-col gap-0.5 p-4 rounded-xl border-2 cursor-pointer transition-all
+                                  ${effectiveType === opt.value
+                                    ? 'border-primary-500 bg-primary-50'
+                                    : 'border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        checked={effectiveType === opt.value}
+                        onChange={() => setProfile((p) => ({ ...p, bank_account_type: opt.value, bank_account_value: '' }))}
+                      />
+                      <span className="font-semibold text-gray-800">{opt.label}</span>
+                      <span className="text-xs text-gray-500">{opt.desc}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {effectiveType === 'iban' && (
               <div>
                 <label className="input-label">IBAN *</label>
                 <input
                   className="input-field font-mono tracking-wider"
                   placeholder="PT50 0000 0000 0000 0000 0000 0"
                   value={profile?.bank_account_value || ''}
-                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_value: e.target.value.toUpperCase() }))}
+                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_type: 'iban', bank_account_value: e.target.value.toUpperCase() }))}
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   Formato: PT50 seguido de 21 dígitos.
@@ -394,14 +576,14 @@ export default function EditProfile() {
               </div>
             )}
 
-            {profile?.bank_account_type === 'pix' && (
+            {effectiveType === 'pix' && (
               <div>
                 <label className="input-label">Chave PIX *</label>
                 <input
                   className="input-field"
                   placeholder="CPF, email, telefone ou chave aleatória"
                   value={profile?.bank_account_value || ''}
-                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_value: e.target.value }))}
+                  onChange={(e) => setProfile((p) => ({ ...p, bank_account_type: 'pix', bank_account_value: e.target.value }))}
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   Insere a chave PIX registada no teu banco.
@@ -409,7 +591,7 @@ export default function EditProfile() {
               </div>
             )}
 
-            {!profile?.bank_account_type && (
+            {!effectiveType && (
               <p className="text-center text-sm text-gray-400 py-4">
                 Seleciona o tipo de conta para continuar.
               </p>
@@ -421,6 +603,115 @@ export default function EditProfile() {
                 Conta bancária configurada. Podes receber pagamentos.
               </div>
             )}
+          </div>
+          )
+        })()}
+
+        {/* Availability tab */}
+        {tab === 'availability' && (
+          <div className="card space-y-4">
+            <p className="text-sm text-gray-500">
+              Define os dias e horários em que estás disponível para receber clientes.
+              Os clientes verão estes horários no teu perfil.
+            </p>
+
+            {availLoading ? (
+              <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                A carregar disponibilidade...
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {schedule.map((day, idx) => (
+                  <div
+                    key={day.day}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all
+                                ${day.active ? 'border-primary-200 bg-primary-50' : 'border-gray-100 bg-white'}`}
+                  >
+                    {/* Toggle */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSchedule((prev) =>
+                          prev.map((d, i) => i === idx ? { ...d, active: !d.active } : d)
+                        )
+                      }
+                      className={`relative inline-flex w-10 h-6 rounded-full flex-shrink-0 transition-colors
+                                  ${day.active ? 'bg-primary-600' : 'bg-gray-200'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow
+                                    transition-transform ${day.active ? 'translate-x-4' : 'translate-x-0'}`}
+                      />
+                    </button>
+
+                    {/* Day label */}
+                    <span className={`text-sm font-semibold w-32 flex-shrink-0
+                                      ${day.active ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {day.label}
+                    </span>
+
+                    {/* Time range */}
+                    {day.active && (
+                      <div className="flex items-center gap-2 flex-1">
+                        <select
+                          className="input-field py-1.5 text-sm flex-1"
+                          value={day.start}
+                          onChange={(e) =>
+                            setSchedule((prev) =>
+                              prev.map((d, i) => i === idx ? { ...d, start: e.target.value } : d)
+                            )
+                          }
+                        >
+                          {TIME_OPTIONS.slice(0, -1).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-gray-400 flex-shrink-0">até</span>
+                        <select
+                          className="input-field py-1.5 text-sm flex-1"
+                          value={day.end}
+                          onChange={(e) =>
+                            setSchedule((prev) =>
+                              prev.map((d, i) => i === idx ? { ...d, end: e.target.value } : d)
+                            )
+                          }
+                        >
+                          {TIME_OPTIONS.slice(1).map((t) => (
+                            <option key={t} value={t} disabled={t <= day.start}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {availSuccess && (
+              <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                Disponibilidade guardada com sucesso!
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveAvailability}
+              disabled={availSaving}
+              className="btn-primary w-full py-3 text-base disabled:opacity-60"
+            >
+              {availSaving ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  A guardar...
+                </span>
+              ) : (
+                <>
+                  <Save className="w-5 h-5" />
+                  Guardar Disponibilidade
+                </>
+              )}
+            </button>
           </div>
         )}
 
@@ -438,8 +729,8 @@ export default function EditProfile() {
           </div>
         )}
 
-        {/* Save button */}
-        <button
+        {/* Save button — only for profile and bank tabs */}
+        {tab !== 'availability' && <button
           onClick={handleSave}
           disabled={saving}
           className="btn-primary w-full mt-5 py-4 text-base disabled:opacity-60"
@@ -455,7 +746,7 @@ export default function EditProfile() {
               Guardar Alterações
             </>
           )}
-        </button>
+        </button>}
       </main>
     </div>
   )

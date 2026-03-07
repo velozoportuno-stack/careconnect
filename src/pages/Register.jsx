@@ -5,6 +5,7 @@ import { Heart, User, Briefcase, ArrowLeft, Camera, Upload, MapPin, Loader2, Ale
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { COUNTRIES, CITIES } from '../utils/locations'
+import { CLEANING_TYPES } from '../utils/constants'
 import Navbar from '../components/Navbar'
 
 // Traduz mensagens de erro do Supabase para português
@@ -48,6 +49,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [country, setCountry] = useState('PT')
+  const [cleaningTypesSelected, setCleaningTypesSelected] = useState([])
   const avatarFileRef = useRef(null)
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm()
@@ -94,6 +96,14 @@ export default function Register() {
       ...(userType === 'professional' && {
         hourly_rate: parseFloat(values.hourly_rate) || null,
         bio:         values.bio || null,
+      }),
+      ...(values.service_type === 'nurse' && {
+        nursing_license:         values.nursing_license || null,
+        nursing_license_country: values.country || null,
+      }),
+      ...(values.service_type === 'cleaner' && {
+        cleaning_types:        cleaningTypesSelected.length ? cleaningTypesSelected : null,
+        cleaning_description:  values.cleaning_description || null,
       }),
     }
 
@@ -417,6 +427,26 @@ export default function Register() {
                   )}
                 </div>
 
+                {/* Nursing license — only when nurse is selected */}
+                {selectedServiceType === 'nurse' && (
+                  <div>
+                    <label className="input-label">
+                      {watch('country') === 'BR'
+                        ? 'Número do COREN (Conselho Regional de Enfermagem) *'
+                        : 'Número da Cédula Profissional (Ordem dos Enfermeiros) *'}
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder={watch('country') === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
+                      {...register('nursing_license', { required: 'Número de licença profissional obrigatório' })}
+                    />
+                    {errors.nursing_license && (
+                      <p className="text-red-500 text-xs mt-1">{errors.nursing_license.message}</p>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <label className="input-label">Preço por hora (€) *</label>
                   <input
@@ -442,6 +472,56 @@ export default function Register() {
                     {...register('bio')}
                   />
                 </div>
+
+                {/* Cleaning-specific fields */}
+                {selectedServiceType === 'cleaner' && (
+                  <>
+                    <div>
+                      <label className="input-label">Tipos de limpeza oferecida *</label>
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        {CLEANING_TYPES.map((type) => {
+                          const checked = cleaningTypesSelected.includes(type.value)
+                          return (
+                            <label
+                              key={type.value}
+                              className={`flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all
+                                          ${checked ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}
+                            >
+                              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
+                                               ${checked ? 'bg-primary-500 border-primary-500' : 'border-gray-300'}`}>
+                                {checked && (
+                                  <svg viewBox="0 0 10 8" className="w-2.5 h-2" fill="none">
+                                    <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                )}
+                              </div>
+                              <span className="text-xs font-medium text-gray-700">{type.label}</span>
+                              <input
+                                type="checkbox"
+                                className="sr-only"
+                                checked={checked}
+                                onChange={(e) =>
+                                  setCleaningTypesSelected((prev) =>
+                                    e.target.checked ? [...prev, type.value] : prev.filter((v) => v !== type.value)
+                                  )
+                                }
+                              />
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="input-label">Descrição dos serviços</label>
+                      <textarea
+                        rows={3}
+                        className="input-field resize-none"
+                        placeholder="Equipamentos utilizados, metodologia, o que inclui o serviço..."
+                        {...register('cleaning_description')}
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
 

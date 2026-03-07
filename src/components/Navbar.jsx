@@ -63,7 +63,7 @@ export default function Navbar() {
               <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
                 <UserCircle className="w-5 h-5 text-gray-400" />
                 <span className="text-sm text-gray-700 font-medium">
-                  {user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0]}
+                  Olá, {user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0]}
                   {userRole && (
                     <span className="ml-1 text-xs text-primary-600 font-normal">
                       · {ROLE_LABEL[userRole] || userRole}
@@ -85,7 +85,7 @@ export default function Navbar() {
               <Link to="/login" className="text-sm font-medium text-gray-600 hover:text-gray-900">
                 Entrar
               </Link>
-              <Link to="/login" className="btn-primary text-sm py-2 px-4">
+              <Link to="/register" className="btn-primary text-sm py-2 px-4">
                 Cadastrar
               </Link>
             </div>
@@ -131,7 +131,7 @@ export default function Navbar() {
                 className="text-sm font-medium text-gray-700 py-2">
                 Entrar
               </Link>
-              <Link to="/login" onClick={() => setMobileOpen(false)}
+              <Link to="/register" onClick={() => setMobileOpen(false)}
                 className="btn-primary text-sm text-center">
                 Cadastrar
               </Link>
