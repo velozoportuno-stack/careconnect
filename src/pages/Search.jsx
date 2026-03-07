@@ -66,7 +66,7 @@ function normalizeService(svc) {
 function normalizeProfile(p) {
   return {
     serviceId: null, providerId: p.id,
-    title: CATEGORY_LABEL[p.role] || 'Serviço', category: p.role,
+    title: CATEGORY_LABEL[p.service_type] || 'Profissional', category: p.service_type,
     bio: p.bio, price: p.hourly_rate,
     dailyRate: p.daily_rate || null,
     cleaningTypes: p.cleaning_types || null,
@@ -103,9 +103,9 @@ export default function Search() {
       // Fallback to profiles (before migration runs)
       let pq = supabase
         .from('profiles')
-        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role')
-        .neq('role', 'client').neq('role', 'admin').eq('is_active', true)
-      if (category !== 'Todos') pq = pq.eq('role', category)
+        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role, service_type')
+        .eq('role', 'professional').eq('is_active', true)
+      if (category !== 'Todos') pq = pq.eq('service_type', category)
       const { data: pd } = await pq.order('rating', { ascending: false })
       setItems((pd || []).map(normalizeProfile))
     }

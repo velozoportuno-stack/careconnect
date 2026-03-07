@@ -132,7 +132,7 @@ export default function Profile() {
     navigate('/booking')
   }
 
-  const isCarePro = ['caregiver', 'nurse'].includes(profile?.role)
+  const isCarePro = ['caregiver', 'nurse'].includes(profile?.service_type)
 
   if (loading) {
     return (
@@ -183,8 +183,8 @@ export default function Profile() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h1 className="text-2xl font-extrabold text-gray-900">{profile.full_name}</h1>
-                      <span className={`${ROLE_COLOR[profile.role] || 'badge-gray'} mt-1`}>
-                        {ROLE_LABEL[profile.role] || profile.role}
+                      <span className={`${ROLE_COLOR[profile.service_type] || 'badge-gray'} mt-1`}>
+                        {ROLE_LABEL[profile.service_type] || 'Profissional'}
                       </span>
                     </div>
                     {profile.is_verified && (
@@ -236,7 +236,7 @@ export default function Profile() {
               )}
 
               {/* Cleaning details */}
-              {profile.role === 'cleaner' && (profile.cleaning_types?.length || profile.cleaning_description) && (
+              {profile.service_type === 'cleaner' && (profile.cleaning_types?.length || profile.cleaning_description) && (
                 <div className="mt-6 pt-5 border-t border-gray-100 space-y-3">
                   {profile.cleaning_types?.length > 0 && (
                     <div>

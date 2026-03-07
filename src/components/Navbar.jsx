@@ -1,36 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { Heart, Search, LayoutDashboard, LogOut, Menu, X, UserCircle, ArrowLeftRight } from 'lucide-react'
+import { Heart, Search, LayoutDashboard, LogOut, Menu, X, UserCircle } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
 
-const ROLE_LABEL = {
-  client:    'Cliente',
-  caregiver: 'Cuidador(a)',
-  nurse:     'Enfermeiro(a)',
-  cleaner:   'Assistente',
-  admin:     'Admin',
-}
-
-// True if the role is a professional (provider) role
-const isProfRole = (r) => r && r !== 'client' && r !== 'admin'
-
 export default function Navbar() {
-  const { user, userRole, secondaryRole, activeRole, setActiveRole } = useAppStore()
+  const { user, userRole } = useAppStore()
   const { signOut } = useAuth()
-
-  // Role switcher: shown when user has both a client role and a professional role
-  const hasDualRoles = (
-    (userRole === 'client' && secondaryRole && isProfRole(secondaryRole)) ||
-    (isProfRole(userRole) && secondaryRole === 'client')
-  )
-  const isActingAsClient = activeRole === 'client'
-
-  const handleRoleSwitch = () => {
-    const next = isActingAsClient ? (secondaryRole || userRole) : 'client'
-    setActiveRole(next)
-    navigate('/dashboard')
-  }
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -47,6 +23,9 @@ export default function Navbar() {
     `text-sm font-medium transition-colors ${
       isActive(path) ? 'text-primary-600' : 'text-gray-600 hover:text-gray-900'
     }`
+
+  const roleLabel = userRole === 'professional' ? 'Profissional' : userRole === 'client' ? 'Cliente' : null
+  const firstName = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0]
 
   return (
     <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
@@ -79,27 +58,12 @@ export default function Navbar() {
               <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
                 <UserCircle className="w-5 h-5 text-gray-400" />
                 <span className="text-sm text-gray-700 font-medium">
-                  Olá, {user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0]}
-                  {activeRole && (
-                    <span className="ml-1 text-xs text-primary-600 font-normal">
-                      · {ROLE_LABEL[activeRole] || activeRole}
-                    </span>
+                  Olá, {firstName}
+                  {roleLabel && (
+                    <span className="ml-1 text-xs text-primary-600 font-normal">· {roleLabel}</span>
                   )}
                 </span>
               </div>
-
-              {hasDualRoles && (
-                <button
-                  onClick={handleRoleSwitch}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full
-                             border border-primary-200 bg-primary-50 text-primary-700
-                             hover:bg-primary-100 transition-colors"
-                  title="Trocar perfil ativo"
-                >
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
-                  {isActingAsClient ? 'Modo Profissional' : 'Modo Cliente'}
-                </button>
-              )}
 
               <button
                 onClick={handleSignOut}
@@ -135,7 +99,7 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="sm:hidden border-t border-gray-100 bg-white px-4 py-4 flex flex-col gap-3">
           <Link to="/" onClick={() => setMobileOpen(false)}
-            className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2">
+            className="text-sm font-medium text-gray-700 py-2">
             Início
           </Link>
           <Link to="/search" onClick={() => setMobileOpen(false)}
@@ -149,15 +113,6 @@ export default function Navbar() {
                 className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2">
                 <LayoutDashboard className="w-4 h-4" /> Painel
               </Link>
-              {hasDualRoles && (
-                <button
-                  onClick={() => { setMobileOpen(false); handleRoleSwitch() }}
-                  className="flex items-center gap-2 text-sm font-semibold text-primary-700 py-2 text-left"
-                >
-                  <ArrowLeftRight className="w-4 h-4" />
-                  {isActingAsClient ? 'Entrar como Profissional' : 'Entrar como Cliente'}
-                </button>
-              )}
               <button onClick={handleSignOut}
                 className="flex items-center gap-2 text-sm font-medium text-red-500 py-2 text-left">
                 <LogOut className="w-4 h-4" /> Sair

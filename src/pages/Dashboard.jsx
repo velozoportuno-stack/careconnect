@@ -25,11 +25,9 @@ const STATUS_LABELS = {
 }
 
 const ROLE_LABEL = {
-  client:    'Cliente',
-  caregiver: 'Cuidador(a) de Idosos',
-  nurse:     'Enfermeiro(a)',
-  cleaner:   'Assistente de Limpeza',
-  admin:     'Administrador',
+  client:       'Cliente',
+  professional: 'Profissional',
+  admin:        'Administrador',
 }
 
 const TRACKING_STATUSES = new Set(['confirmed', 'in_progress', 'completed'])
@@ -53,9 +51,11 @@ function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = '
 function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh }) {
   const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
   const hasTracking = TRACKING_STATUSES.has(booking.status)
-  const isProvider  = userRole !== 'client'
+  const isProvider  = userRole === 'professional'
   const isActive    = ACTIVE_STATUSES.has(booking.status)
-  const hasCare     = CARE_ROLES.has(isProvider ? userRole : booking.provider?.role)
+  // hasCare: show medication alarms if the booked service is care-type
+  const providerServiceType = booking.provider?.service_type
+  const hasCare = CARE_ROLES.has(providerServiceType)
 
   const otherParty  = isProvider ? booking.client : booking.provider
 
@@ -191,7 +191,7 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
 }
 
 export default function Dashboard() {
-  const { user, userRole, secondaryRole, activeRole } = useAppStore()
+  const { user, userRole } = useAppStore()
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
@@ -206,11 +206,7 @@ export default function Dashboard() {
     navigate('/')
   }
 
-  // Use the active role for all role-based UI decisions
-  const effectiveRole = activeRole || userRole
-  const isProvider = effectiveRole && effectiveRole !== 'client' && effectiveRole !== 'admin'
-  // Show "become professional" banner only for pure clients (no secondary role yet)
-  const showBecomePro = effectiveRole === 'client' && !secondaryRole
+  const isProvider = userRole === 'professional'
 
   const filteredBookings = bookings.filter((b) => {
     if (filter === 'all')    return true
@@ -240,9 +236,9 @@ export default function Dashboard() {
               <span className="text-sm text-gray-500">
                 {isProvider ? 'Painel do profissional' : 'Os meus agendamentos'}
               </span>
-              {effectiveRole && (
+              {userRole && (
                 <span className="badge-teal text-xs">
-                  {ROLE_LABEL[effectiveRole] || effectiveRole}
+                  {ROLE_LABEL[userRole] || userRole}
                 </span>
               )}
             </div>
@@ -290,29 +286,6 @@ export default function Dashboard() {
             bg="bg-emerald-50"
           />
         </div>
-
-        {/* ── Become a professional banner (clients without a pro profile) ── */}
-        {showBecomePro && (
-          <div className="card mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-4
-                          border-2 border-amber-100 bg-amber-50">
-            <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center flex-shrink-0">
-              <Briefcase className="w-6 h-6 text-amber-600" />
-            </div>
-            <div className="flex-1">
-              <p className="font-bold text-gray-900">Oferece também os teus serviços</p>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Com a mesma conta podes atuar como cuidador, enfermeiro ou assistente de limpeza.
-              </p>
-            </div>
-            <Link
-              to="/register?add_role=professional"
-              className="btn-primary text-sm whitespace-nowrap flex-shrink-0"
-            >
-              <PlusCircle className="w-4 h-4" />
-              Adicionar perfil profissional
-            </Link>
-          </div>
-        )}
 
         {/* ── Service Manager (providers only) ── */}
         {isProvider && <ServiceManager />}
@@ -387,7 +360,7 @@ export default function Dashboard() {
                 <BookingRow
                   key={booking.id}
                   booking={booking}
-                  userRole={effectiveRole}
+                  userRole={userRole}
                   userId={user?.id}
                   isExpanded={expandedId === booking.id}
                   onToggle={(id) => setExpandedId((prev) => (prev === id ? null : id))}
