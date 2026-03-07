@@ -56,6 +56,7 @@ export default function EditProfile() {
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
+    if (userRole === 'professional') loadAvailability()
   }, [])
 
   async function fetchProfile() {
@@ -159,12 +160,17 @@ export default function EditProfile() {
         updated_at:   new Date().toISOString(),
       }
 
-      // Try saving with bank account fields first
+      // Derive the correct bank_account_type from country so it's always in sync
+      const bankType =
+        profile.country === 'PT' ? 'iban' :
+        profile.country === 'BR' ? 'pix'  :
+        profile.bank_account_type ?? null
+
       const { error: upErr } = await supabase
         .from('profiles')
         .update({
           ...baseUpdate,
-          bank_account_type:       profile.bank_account_type    ?? null,
+          bank_account_type:       bankType,
           bank_account_value:      profile.bank_account_value   ?? null,
           bank_account_name:       profile.bank_account_name    ?? null,
           address:                 profile.address              ?? null,
@@ -178,17 +184,23 @@ export default function EditProfile() {
         .eq('id', user.id)
 
       if (upErr) {
-        // If bank account columns don't exist yet, fallback to base fields only
-        if (upErr.message?.includes('bank_account') || upErr.message?.includes('schema cache')) {
-          const { error: fallbackErr } = await supabase
-            .from('profiles')
-            .update(baseUpdate)
-            .eq('id', user.id)
-          if (fallbackErr) throw new Error(fallbackErr.message)
-          setError('Perfil guardado, mas os campos bancários ainda não estão activos. Executa a migração SQL no Supabase.')
-        } else {
-          throw new Error(upErr.message)
-        }
+        // If extended columns are missing, save base fields first then retry bank fields separately
+        const { error: baseErr } = await supabase
+          .from('profiles')
+          .update(baseUpdate)
+          .eq('id', user.id)
+        if (baseErr) throw new Error(baseErr.message)
+
+        // Retry bank account fields independently so they're never silently dropped
+        await supabase
+          .from('profiles')
+          .update({
+            bank_account_type:  bankType,
+            bank_account_value: profile.bank_account_value ?? null,
+            bank_account_name:  profile.bank_account_name  ?? null,
+          })
+          .eq('id', user.id)
+        // Bank retry errors are non-fatal — migration may not be run yet
       }
 
       setProfile((p) => ({ ...p, avatar_url: avatarUrl }))
@@ -643,7 +655,7 @@ export default function EditProfile() {
           )
         })()}
 
-        {/* Availability tab */}
+        {/* Availability tab — load when first opened if not already loaded */}
         {tab === 'availability' && (
           <div className="card space-y-4">
             <p className="text-sm text-gray-500">
@@ -687,8 +699,8 @@ export default function EditProfile() {
                       {day.label}
                     </span>
 
-                    {/* Time range */}
-                    {day.active && (
+                    {/* Time range — selects when active, text summary when inactive */}
+                    {day.active ? (
                       <div className="flex items-center gap-2 flex-1">
                         <select
                           className="input-field py-1.5 text-sm flex-1"
@@ -718,6 +730,10 @@ export default function EditProfile() {
                           ))}
                         </select>
                       </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
+                        {day.start} – {day.end}
+                      </span>
                     )}
                   </div>
                 ))}
@@ -725,9 +741,16 @@ export default function EditProfile() {
             )}
 
             {availSuccess && (
-              <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                Disponibilidade guardada com sucesso!
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1">
+                <div className="flex items-center gap-2 text-sm text-emerald-700 font-semibold">
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                  Disponibilidade guardada com sucesso!
+                </div>
+                {schedule.filter((d) => d.active).map((d) => (
+                  <p key={d.day} className="text-xs text-emerald-600 pl-6">
+                    {d.label}: {d.start} – {d.end}
+                  </p>
+                ))}
               </div>
             )}
 

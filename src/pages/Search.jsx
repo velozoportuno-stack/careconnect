@@ -95,11 +95,11 @@ export default function Search() {
     if (!error && data?.length > 0) {
       setItems(data.filter((s) => s.provider?.is_active !== false).map(normalizeService))
     } else {
-      // Fallback to profiles
+      // Fallback to profiles — use neq(false) so null rows (most professionals) are included
       let pq = supabase
         .from('profiles')
         .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role, service_type, professional_id_number')
-        .eq('role', 'professional').eq('is_active', true)
+        .eq('role', 'professional').neq('is_active', false)
       if (category !== 'Todos') pq = pq.eq('service_type', category)
       const { data: pd } = await pq.order('rating', { ascending: false })
       setItems((pd || []).map(normalizeProfile))
