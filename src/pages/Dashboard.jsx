@@ -161,13 +161,13 @@ function FinishServiceModal({ booking, onCancel, onConfirm, loading }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-orange-50 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle className="w-6 h-6 text-orange-500" />
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+            <CheckCheck className="w-6 h-6 text-emerald-600" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-900">Finalizar Serviço</h3>
+            <h3 className="text-lg font-bold text-gray-900">Concluir Serviço</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Tens a certeza que queres finalizar o serviço? O pagamento será libertado para a tua conta.
+              Tens a certeza que queres concluir este serviço? O pagamento será libertado para a tua conta.
             </p>
           </div>
         </div>
@@ -190,21 +190,19 @@ function FinishServiceModal({ booking, onCancel, onConfirm, loading }) {
             className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold
                        text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            <X className="w-4 h-4 inline mr-1" />
             Cancelar
           </button>
           <button
             onClick={onConfirm}
             disabled={loading}
-            className="flex-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white
+            className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white
                        text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
           >
             {loading ? (
               <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
             ) : (
-              <CheckCheck className="w-4 h-4" />
+              <>✅ Confirmar Conclusão</>
             )}
-            Confirmar Finalização
           </button>
         </div>
       </div>
@@ -347,7 +345,7 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
           )}
 
           {/* Action buttons */}
-          {((!isProvider && isActive) || (isProvider && booking.status === 'in_progress') || canCancel) && (
+          {((!isProvider && isActive) || (isProvider && isActive) || canCancel) && (
             <div className="mt-3 flex items-center gap-2 flex-wrap">
               {/* Add hours — client only, active bookings */}
               {!isProvider && isActive && (
@@ -360,12 +358,12 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                   Acrescentar horas
                 </button>
               )}
-              {/* Finish service — provider only, in_progress */}
-              {isProvider && booking.status === 'in_progress' && (
+              {/* Finish service — provider only, confirmed or in_progress */}
+              {isProvider && isActive && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onFinishService(booking) }}
                   className="flex items-center gap-1.5 text-xs font-semibold text-white
-                             bg-orange-500 hover:bg-orange-600 px-3 py-1.5 rounded-lg transition-colors"
+                             bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
                   ✅ Concluir Serviço
@@ -464,7 +462,7 @@ export default function Dashboard() {
         event: 'UPDATE', schema: 'public', table: 'bookings',
         filter: `provider_id=eq.${user.id}`,
       }, (payload) => {
-        if (payload.new?.status === 'cancelled_by_client') {
+        if (payload.new?.status === 'cancelled' && payload.new?.cancelled_by === 'client') {
           addNotification({ id: Date.now(), message: 'O cliente cancelou a reserva.', type: 'error' })
           fetchBookings()
         }
@@ -498,7 +496,7 @@ export default function Dashboard() {
               if (completed) setRatingBooking({ ...completed, reviewerRole: 'client' })
             })
           }
-          if (payload.new?.status === 'cancelled_by_professional') {
+          if (payload.new?.status === 'cancelled' && payload.new?.cancelled_by === 'professional') {
             addNotification({
               id: Date.now(),
               message: 'O profissional cancelou o serviço. O reembolso será processado em breve.',
@@ -574,11 +572,19 @@ export default function Dashboard() {
   const handleCancelBooking = useCallback(async () => {
     if (!cancelTarget) return
     setCancelLoading(true)
-    const newStatus = isProvider ? 'cancelled_by_professional' : 'cancelled_by_client'
+    const cancelledBy = isProvider ? 'professional' : 'client'
     const { error } = await supabase
       .from('bookings')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: cancelledBy,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', cancelTarget.id)
+    if (error) {
+      console.error('[Cancel] Supabase error:', error)
+    }
     setCancelLoading(false)
     setCancelTarget(null)
     if (error) {
