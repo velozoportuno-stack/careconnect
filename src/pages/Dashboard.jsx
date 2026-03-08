@@ -574,11 +574,19 @@ export default function Dashboard() {
   const handleCancelBooking = useCallback(async () => {
     if (!cancelTarget) return
     setCancelLoading(true)
-    const newStatus = isProvider ? 'cancelled_by_professional' : 'cancelled_by_client'
+    const cancelledBy = isProvider ? 'professional' : 'client'
     const { error } = await supabase
       .from('bookings')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: cancelledBy,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', cancelTarget.id)
+    if (error) {
+      console.error('[Cancel] Supabase error:', error)
+    }
     setCancelLoading(false)
     setCancelTarget(null)
     if (error) {
