@@ -93,6 +93,68 @@ function RatingModal({ booking, reviewerRole, onClose, onSubmit, loading }) {
   )
 }
 
+/* ── Cancel Confirmation Modal ── */
+function CancelModal({ booking, cancellerRole, onBack, onConfirm, loading }) {
+  const isProvider = cancellerRole === 'professional'
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-6 h-6 text-red-500" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">
+              {isProvider ? 'Cancelar Serviço' : 'Cancelar Reserva'}
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              {isProvider
+                ? 'Tens a certeza que queres cancelar este serviço? O cliente será notificado.'
+                : 'Tens a certeza que queres cancelar esta reserva?'}
+            </p>
+          </div>
+        </div>
+
+        {booking && (
+          <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600">
+            <p className="font-semibold text-gray-800">
+              {booking.service?.title || 'Serviço agendado'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {isProvider
+                ? `Cliente: ${booking.client?.full_name}`
+                : `Profissional: ${booking.provider?.full_name}`}{' '}
+              · {formatDate(booking.scheduled_date)}
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onBack}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold
+                       text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Voltar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white
+                       text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
+          >
+            {loading
+              ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              : <X className="w-4 h-4" />}
+            Confirmar Cancelamento
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Finish Service Confirmation Modal ── */
 function FinishServiceModal({ booking, onCancel, onConfirm, loading }) {
   return (
@@ -151,11 +213,13 @@ function FinishServiceModal({ booking, onCancel, onConfirm, loading }) {
 }
 
 const STATUS_LABELS = {
-  pending:     { label: 'Pendente',       css: 'status-pending' },
-  confirmed:   { label: 'Confirmado',     css: 'status-confirmed' },
-  in_progress: { label: 'Em andamento',   css: 'status-in_progress' },
-  completed:   { label: 'Concluído',      css: 'status-completed' },
-  cancelled:   { label: 'Cancelado',      css: 'status-cancelled' },
+  pending:                   { label: '🟡 Pendente',                    css: 'status-pending' },
+  confirmed:                 { label: '🟢 Confirmado',                  css: 'status-confirmed' },
+  in_progress:               { label: '🔵 Em andamento',               css: 'status-in_progress' },
+  completed:                 { label: '✅ Concluído',                   css: 'status-completed' },
+  cancelled:                 { label: '❌ Cancelado',                   css: 'status-cancelled' },
+  cancelled_by_client:       { label: '❌ Cancelado pelo cliente',      css: 'status-cancelled' },
+  cancelled_by_professional: { label: '❌ Cancelado pelo profissional', css: 'status-cancelled' },
 }
 
 const ROLE_LABEL = {
@@ -164,9 +228,10 @@ const ROLE_LABEL = {
   admin:        'Administrador',
 }
 
-const TRACKING_STATUSES = new Set(['confirmed', 'in_progress', 'completed'])
-const CARE_ROLES = new Set(['caregiver', 'nurse'])
-const ACTIVE_STATUSES = new Set(['confirmed', 'in_progress'])
+const TRACKING_STATUSES      = new Set(['confirmed', 'in_progress', 'completed'])
+const CARE_ROLES             = new Set(['caregiver', 'nurse'])
+const ACTIVE_STATUSES        = new Set(['confirmed', 'in_progress'])
+const CANCELLABLE_STATUSES   = new Set(['pending', 'confirmed'])
 
 function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = 'bg-primary-50' }) {
   return (
@@ -182,11 +247,12 @@ function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = '
   )
 }
 
-function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService }) {
+function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService, onCancelService }) {
   const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
   const hasTracking = TRACKING_STATUSES.has(booking.status)
   const isProvider  = userRole === 'professional'
   const isActive    = ACTIVE_STATUSES.has(booking.status)
+  const canCancel   = CANCELLABLE_STATUSES.has(booking.status)
   // hasCare: show medication alarms if the booked service is care-type
   const providerServiceType = booking.provider?.service_type
   const hasCare = CARE_ROLES.has(providerServiceType)
@@ -281,8 +347,9 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
           )}
 
           {/* Action buttons */}
-          {(!isProvider && isActive) || (isProvider && booking.status === 'in_progress') ? (
+          {((!isProvider && isActive) || (isProvider && booking.status === 'in_progress') || canCancel) && (
             <div className="mt-3 flex items-center gap-2 flex-wrap">
+              {/* Add hours — client only, active bookings */}
               {!isProvider && isActive && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onAddHours(booking) }}
@@ -293,6 +360,7 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                   Acrescentar horas
                 </button>
               )}
+              {/* Finish service — provider only, in_progress */}
               {isProvider && booking.status === 'in_progress' && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onFinishService(booking) }}
@@ -300,11 +368,33 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                              bg-orange-500 hover:bg-orange-600 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
-                  Finalizar Serviço
+                  ✅ Concluir Serviço
+                </button>
+              )}
+              {/* Cancel — provider on pending/confirmed */}
+              {isProvider && canCancel && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCancelService(booking) }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-red-600
+                             bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  ❌ Cancelar Serviço
+                </button>
+              )}
+              {/* Cancel — client on pending/confirmed */}
+              {!isProvider && canCancel && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCancelService(booking) }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-red-600
+                             bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  ❌ Cancelar Reserva
                 </button>
               )}
             </div>
-          ) : null}
+          )}
         </div>
 
         {hasTracking && (
@@ -350,6 +440,8 @@ export default function Dashboard() {
   const [ratingBooking, setRatingBooking]     = useState(null)
   const [ratingLoading, setRatingLoading]     = useState(false)
   const [profRating, setProfRating]           = useState(null)
+  const [cancelTarget, setCancelTarget]       = useState(null)
+  const [cancelLoading, setCancelLoading]     = useState(false)
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
@@ -363,7 +455,25 @@ export default function Dashboard() {
       .then(({ data }) => { if (data?.total_reviews > 0) setProfRating(data.average_rating) })
   }, [isProvider, user])
 
-  // Client: subscribe to booking completions via Supabase Realtime
+  // Provider: subscribe to client-initiated cancellations via Supabase Realtime
+  useEffect(() => {
+    if (!user || !isProvider) return
+    const channel = supabase
+      .channel(`provider-bookings-${user.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'bookings',
+        filter: `provider_id=eq.${user.id}`,
+      }, (payload) => {
+        if (payload.new?.status === 'cancelled_by_client') {
+          addNotification({ id: Date.now(), message: 'O cliente cancelou a reserva.', type: 'error' })
+          fetchBookings()
+        }
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [user, isProvider])
+
+  // Client: subscribe to booking completions and cancellations via Supabase Realtime
   useEffect(() => {
     if (!user || isProvider) return
     const channel = supabase
@@ -384,10 +494,17 @@ export default function Dashboard() {
               type: 'success',
             })
             fetchBookings().then(() => {
-              // Show rating modal — find full booking object after refresh
               const completed = (bookings || []).find((b) => b.id === payload.new.id)
               if (completed) setRatingBooking({ ...completed, reviewerRole: 'client' })
             })
+          }
+          if (payload.new?.status === 'cancelled_by_professional') {
+            addNotification({
+              id: Date.now(),
+              message: 'O profissional cancelou o serviço. O reembolso será processado em breve.',
+              type: 'error',
+            })
+            fetchBookings()
           }
         }
       )
@@ -454,10 +571,32 @@ export default function Dashboard() {
     }
   }, [ratingBooking, user])
 
+  const handleCancelBooking = useCallback(async () => {
+    if (!cancelTarget) return
+    setCancelLoading(true)
+    const newStatus = isProvider ? 'cancelled_by_professional' : 'cancelled_by_client'
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', cancelTarget.id)
+    setCancelLoading(false)
+    setCancelTarget(null)
+    if (error) {
+      setSuccessMsg({ type: 'error', text: 'Erro ao cancelar. Tenta novamente.' })
+    } else {
+      const msg = isProvider ? 'Serviço cancelado.' : 'Reserva cancelada com sucesso.'
+      setSuccessMsg({ type: 'success', text: msg })
+      fetchBookings()
+    }
+    setTimeout(() => setSuccessMsg(null), 5000)
+  }, [cancelTarget, isProvider, fetchBookings])
+
+  const CANCELLED_STATUSES = ['cancelled', 'cancelled_by_client', 'cancelled_by_professional']
   const filteredBookings = (bookings || []).filter((b) => {
-    if (filter === 'all')    return true
-    if (filter === 'active') return ['pending', 'confirmed', 'in_progress'].includes(b.status)
-    if (filter === 'done')   return b.status === 'completed'
+    if (filter === 'all')       return true
+    if (filter === 'active')    return ['pending', 'confirmed', 'in_progress'].includes(b.status)
+    if (filter === 'done')      return b.status === 'completed'
+    if (filter === 'cancelled') return CANCELLED_STATUSES.includes(b.status)
     return true
   })
 
@@ -567,9 +706,10 @@ export default function Dashboard() {
 
             <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
               {[
-                { key: 'all',    label: 'Todos' },
-                { key: 'active', label: 'Activos' },
-                { key: 'done',   label: 'Concluídos' },
+                { key: 'all',       label: 'Todos' },
+                { key: 'active',    label: 'Activos' },
+                { key: 'done',      label: 'Concluídos' },
+                { key: 'cancelled', label: 'Cancelados' },
               ].map((f) => (
                 <button
                   key={f.key}
@@ -637,6 +777,7 @@ export default function Dashboard() {
                   onAddHours={(b) => setAddHoursBooking(b)}
                   onRefresh={fetchBookings}
                   onFinishService={(b) => setFinishBooking(b)}
+                  onCancelService={(b) => setCancelTarget(b)}
                 />
               ))}
             </div>
@@ -660,6 +801,17 @@ export default function Dashboard() {
           onCancel={() => setFinishBooking(null)}
           onConfirm={handleFinishService}
           loading={finishLoading}
+        />
+      )}
+
+      {/* Cancel Modal */}
+      {cancelTarget && (
+        <CancelModal
+          booking={cancelTarget}
+          cancellerRole={userRole}
+          onBack={() => setCancelTarget(null)}
+          onConfirm={handleCancelBooking}
+          loading={cancelLoading}
         />
       )}
 
