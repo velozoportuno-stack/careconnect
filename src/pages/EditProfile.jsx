@@ -56,8 +56,13 @@ export default function EditProfile() {
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
-    if (userRole === 'professional') loadAvailability()
   }, [])
+
+  // Load availability once userRole resolves — avoids race condition where
+  // userRole is null at mount time and the initial call is skipped entirely
+  useEffect(() => {
+    if (userRole === 'professional') loadAvailability()
+  }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchProfile() {
     const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
@@ -239,6 +244,13 @@ export default function EditProfile() {
       if (!uploadError) setError(null)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 4000)
+
+      // Reload profile from DB to confirm all persisted values (nursing_license, etc.)
+      const { data: fresh } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+      if (fresh) {
+        setProfile(fresh)
+        setCountry(fresh.country || 'PT')
+      }
     } catch (e) {
       setError(e.message)
     } finally {

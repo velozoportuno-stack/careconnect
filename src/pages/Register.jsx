@@ -98,6 +98,7 @@ export default function Register() {
       ...(isProfessional && {
         service_type: values.service_type,
         hourly_rate:  parseFloat(values.hourly_rate) || null,
+        daily_rate:   parseFloat(values.daily_rate)  || null,
         bio:          values.bio || null,
         ...(isOtherType && values.custom_profession && {
           custom_profession: values.custom_profession,
@@ -461,21 +462,37 @@ export default function Register() {
                   </div>
                 )}
 
-                {/* Hourly rate */}
-                <div>
-                  <label className="input-label">Preço por hora (€) *</label>
-                  <input
-                    type="number"
-                    step="0.50"
-                    min="5"
-                    className="input-field"
-                    placeholder="15.00"
-                    {...register('hourly_rate', {
-                      required: 'Preço por hora obrigatório',
-                      min: { value: 1, message: 'Preço inválido' },
-                    })}
-                  />
-                  {errors.hourly_rate && <p className="text-red-500 text-xs mt-1">{errors.hourly_rate.message}</p>}
+                {/* Hourly rate + daily rate */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="input-label">⏱ Preço por hora (€) *</label>
+                    <input
+                      type="number"
+                      step="0.50"
+                      min="5"
+                      className="input-field"
+                      placeholder="15.00"
+                      {...register('hourly_rate', {
+                        required: 'Preço por hora obrigatório',
+                        min: { value: 1, message: 'Preço inválido' },
+                      })}
+                    />
+                    {errors.hourly_rate && <p className="text-red-500 text-xs mt-1">{errors.hourly_rate.message}</p>}
+                  </div>
+                  <div>
+                    <label className="input-label">📅 Valor por dia (€/$)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      className="input-field"
+                      placeholder="80"
+                      {...register('daily_rate', {
+                        min: { value: 1, message: 'Valor inválido' },
+                      })}
+                    />
+                    {errors.daily_rate && <p className="text-red-500 text-xs mt-1">{errors.daily_rate.message}</p>}
+                  </div>
                 </div>
 
                 {/* Bio */}
