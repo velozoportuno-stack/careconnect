@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { useAppStore } from '../store/appStore'
 import { Search as SearchIcon, Star, MapPin, ChevronRight, Hash } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { formatCurrency, formatRating } from '../utils/formatters'
@@ -71,7 +72,14 @@ function normalizeProfile(p) {
 }
 
 export default function Search() {
+  const { userRole } = useAppStore()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+
+  // Professionals cannot access the search — redirect to dashboard
+  useEffect(() => {
+    if (userRole === 'professional') navigate('/dashboard', { replace: true })
+  }, [userRole, navigate])
   const [items, setItems]         = useState([])
   const [loading, setLoading]     = useState(true)
   const [nameQuery, setName]      = useState('')

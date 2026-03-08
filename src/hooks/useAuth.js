@@ -90,13 +90,13 @@ export const useAuth = () => {
     // if a column is missing (migration not run) it fails gracefully
     // without rolling back the role already saved above.
     const extended = {
-      ...(service_type             && { service_type }),
-      ...(nursing_license          && { nursing_license }),
-      ...(nursing_license_country  && { nursing_license_country }),
-      ...(cleaning_types?.length   && { cleaning_types }),
-      ...(cleaning_description     && { cleaning_description }),
-      ...(daily_rate               && { daily_rate }),
-      ...(custom_profession        && { custom_profession }),
+      ...(service_type                != null && { service_type }),
+      ...(nursing_license             != null && { nursing_license }),
+      ...(nursing_license_country     != null && { nursing_license_country }),
+      ...(cleaning_types?.length               && { cleaning_types }),
+      ...(cleaning_description        != null && { cleaning_description }),
+      ...(daily_rate                  != null && { daily_rate }),
+      ...(custom_profession           != null && { custom_profession }),
     }
     if (Object.keys(extended).length > 0) {
       await supabase.from('profiles').update(extended).eq('id', data.user.id)

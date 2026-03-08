@@ -41,11 +41,13 @@ export default function Navbar() {
 
         {/* Desktop links */}
         <div className="hidden sm:flex items-center gap-6">
-          <Link to="/search" className={linkClass('/search')}>
-            <span className="flex items-center gap-1.5">
-              <Search className="w-4 h-4" /> Pesquisar
-            </span>
-          </Link>
+          {userRole !== 'professional' && (
+            <Link to="/search" className={linkClass('/search')}>
+              <span className="flex items-center gap-1.5">
+                <Search className="w-4 h-4" /> Pesquisar
+              </span>
+            </Link>
+          )}
 
           {user ? (
             <>
@@ -104,10 +106,12 @@ export default function Navbar() {
               Início
             </Link>
           )}
-          <Link to="/search" onClick={() => setMobileOpen(false)}
-            className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2">
-            <Search className="w-4 h-4" /> Pesquisar
-          </Link>
+          {userRole !== 'professional' && (
+            <Link to="/search" onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2">
+              <Search className="w-4 h-4" /> Pesquisar
+            </Link>
+          )}
 
           {user ? (
             <>
