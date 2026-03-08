@@ -51,7 +51,7 @@ function normalizeService(svc) {
     dailyRate: p.daily_rate || null,
     cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
-    rating: p.rating || 0, totalReviews: p.total_reviews || 0,
+    rating: p.average_rating || p.rating || 0, totalReviews: p.total_reviews || 0,
     city: p.city,
     professionalIdNumber: p.professional_id_number || null,
   }
@@ -65,7 +65,7 @@ function normalizeProfile(p) {
     dailyRate: p.daily_rate || null,
     cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
-    rating: p.rating || 0, totalReviews: p.total_reviews || 0,
+    rating: p.average_rating || p.rating || 0, totalReviews: p.total_reviews || 0,
     city: p.city,
     professionalIdNumber: p.professional_id_number || null,
   }
@@ -94,7 +94,7 @@ export default function Search() {
     setLoading(true)
     let q = supabase
       .from('provider_services')
-      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, total_reviews, city, is_active, daily_rate, cleaning_types, professional_id_number)')
+      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, average_rating, total_reviews, city, is_active, daily_rate, cleaning_types, professional_id_number)')
       .eq('is_available', true)
     if (category !== 'Todos') q = q.eq('category', category)
 
@@ -106,10 +106,10 @@ export default function Search() {
       // Fallback to profiles — use neq(false) so null rows (most professionals) are included
       let pq = supabase
         .from('profiles')
-        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, total_reviews, role, service_type, professional_id_number')
+        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, role, service_type, professional_id_number')
         .eq('role', 'professional').neq('is_active', false)
       if (category !== 'Todos') pq = pq.eq('service_type', category)
-      const { data: pd } = await pq.order('rating', { ascending: false })
+      const { data: pd } = await pq.order('average_rating', { ascending: false, nullsFirst: false })
       setItems((pd || []).map(normalizeProfile))
     }
     setLoading(false)

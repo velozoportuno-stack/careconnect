@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { MapPin, Navigation, Square, AlertCircle, CheckCircle, Loader, Clock } from 'lucide-react'
+import { useState } from 'react'
+import { MapPin, Navigation, Square, AlertCircle, CheckCircle, Loader } from 'lucide-react'
 import { useProviderLocationShare } from '../../hooks/useTracking'
 import { supabase } from '../../lib/supabase'
 
@@ -7,42 +7,12 @@ import { supabase } from '../../lib/supabase'
  * ClientLocationPanel
  *
  * Mostra a localização GPS do cliente ao profissional.
- * Só fica disponível a partir de 30 minutos antes do início do serviço.
- * Fica oculto após checkout.
+ * Sempre visível quando o cliente partilhou a sua localização.
  */
 function ClientLocationPanel({ booking }) {
-  const [now, setNow] = useState(Date.now())
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
-
-  const { client_latitude: lat, client_longitude: lng, client_address: address,
-          scheduled_date, scheduled_time } = booking
+  const { client_latitude: lat, client_longitude: lng, client_address: address } = booking
 
   if (!lat || !lng) return null
-
-  const scheduled = new Date(`${scheduled_date}T${scheduled_time}`)
-  const accessTime = new Date(scheduled.getTime() - 30 * 60 * 1000)
-  const secondsUntil = Math.max(0, Math.floor((accessTime.getTime() - now) / 1000))
-
-  if (secondsUntil > 0) {
-    const h = Math.floor(secondsUntil / 3600)
-    const m = Math.floor((secondsUntil % 3600) / 60)
-    return (
-      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
-        <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
-          <Clock className="w-4 h-4 flex-shrink-0" />
-          Localização do cliente disponível em{' '}
-          {h > 0 ? `${h} hora${h !== 1 ? 's' : ''} e ` : ''}{m} minuto{m !== 1 ? 's' : ''}
-        </p>
-        <p className="text-xs text-amber-600">
-          Acesso ativa 30 minutos antes do agendamento.
-        </p>
-      </div>
-    )
-  }
 
   const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`
 
