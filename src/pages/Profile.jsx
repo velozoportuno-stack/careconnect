@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, BadgeCheck } from 'lucide-react'
+import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, BadgeCheck, Loader2 } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import AvailabilityCalendar from '../components/availability/AvailabilityCalendar'
 import { supabase } from '../lib/supabase'
@@ -32,9 +32,14 @@ function StarRating({ rating, total }) {
   )
 }
 
-// Get today in YYYY-MM-DD
 function today() {
   return new Date().toISOString().split('T')[0]
+}
+
+function timeToMinutes(t) {
+  if (!t) return 0
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + (m || 0)
 }
 
 export default function Profile() {
@@ -55,9 +60,10 @@ export default function Profile() {
   const [duration, setDuration] = useState(2)
   const [days, setDays] = useState(1)
   const [selectedService, setSelectedService] = useState(null)
-  const [address, setAddress]   = useState('')
-  const [notes, setNotes]       = useState('')
-  const [bookingError, setBookingError] = useState(null)
+  const [address, setAddress]     = useState('')
+  const [notes, setNotes]         = useState('')
+  const [bookingError, setBookingError]   = useState(null)
+  const [bookingLoading, setBookingLoading] = useState(false)
 
   useEffect(() => { fetchProfile() }, [id])
 
@@ -108,33 +114,85 @@ export default function Profile() {
     return displayRate() * duration
   }
 
-  const handleBook = () => {
+  const handleBook = async () => {
     if (!user) { navigate('/login'); return }
-    if (!selectedDate || !selectedTime) {
-      setBookingError('Escolhe a data e hora antes de agendar.')
+    if (!selectedDate) {
+      setBookingError('Escolhe a data antes de agendar.')
       return
     }
-    const svcId = selectedService || (services[0]?.id ?? null)
-    const svc = services.find((s) => s.id === svcId) || services[0]
-    const rate = displayRate()
-    const qty = bookingType === 'days' ? days : duration
-    setPendingBooking({
-      providerId: id,
-      provider: profile,
-      serviceId: svcId,
-      service: svc,
-      date: selectedDate,
-      time: selectedTime,
-      bookingType,
-      duration: bookingType === 'hours' ? duration : qty * 24,
-      days: bookingType === 'days' ? days : undefined,
-      address,
-      notes,
-      hourlyRate: bookingType === 'hours' ? rate : undefined,
-      dailyRate: bookingType === 'days' ? rate : undefined,
-      totalPrice: totalPrice(),
-    })
-    navigate('/booking')
+    if (bookingType === 'hours' && !selectedTime) {
+      setBookingError('Escolhe a hora de início antes de agendar.')
+      return
+    }
+    setBookingLoading(true)
+    setBookingError(null)
+    try {
+      if (bookingType === 'hours') {
+        // Validate against professional availability and existing bookings
+        const dayOfWeek = new Date(selectedDate + 'T12:00:00').getDay()
+        const [{ data: avail }, { data: existingBookings }] = await Promise.all([
+          supabase
+            .from('professional_availability')
+            .select('start_time, end_time')
+            .eq('professional_id', id)
+            .eq('day_of_week', dayOfWeek)
+            .eq('is_active', true)
+            .maybeSingle(),
+          supabase
+            .from('bookings')
+            .select('scheduled_time')
+            .eq('provider_id', id)
+            .eq('scheduled_date', selectedDate)
+            .not('status', 'eq', 'cancelled'),
+        ])
+
+        if (!avail) {
+          setBookingError('O profissional não tem disponibilidade neste dia. Por favor escolhe outro horário.')
+          return
+        }
+        const selMins   = timeToMinutes(selectedTime)
+        const startMins = timeToMinutes(avail.start_time)
+        const endMins   = timeToMinutes(avail.end_time)
+        if (selMins < startMins || selMins >= endMins) {
+          setBookingError(
+            `O profissional está disponível das ${avail.start_time.slice(0, 5)} às ${avail.end_time.slice(0, 5)} neste dia.`
+          )
+          return
+        }
+        const selHour = Math.floor(selMins / 60)
+        const hasConflict = (existingBookings || []).some(
+          (b) => parseInt(b.scheduled_time?.split(':')[0] ?? '99', 10) === selHour
+        )
+        if (hasConflict) {
+          setBookingError('Este horário já está reservado. Por favor escolhe outro horário.')
+          return
+        }
+      }
+
+      const svcId = selectedService || (services[0]?.id ?? null)
+      const svc   = services.find((s) => s.id === svcId) || services[0]
+      const rate  = displayRate()
+      const qty   = bookingType === 'days' ? days : duration
+      setPendingBooking({
+        providerId: id,
+        provider:   profile,
+        serviceId:  svcId,
+        service:    svc,
+        date:       selectedDate,
+        time:       bookingType === 'hours' ? selectedTime : '08:00',
+        bookingType,
+        duration:   bookingType === 'hours' ? duration : qty * 24,
+        days:       bookingType === 'days' ? days : undefined,
+        address,
+        notes,
+        hourlyRate: bookingType === 'hours' ? rate : undefined,
+        dailyRate:  bookingType === 'days'  ? rate : undefined,
+        totalPrice: totalPrice(),
+      })
+      navigate('/booking')
+    } finally {
+      setBookingLoading(false)
+    }
   }
 
   const isCarePro = ['caregiver', 'nurse'].includes(profile?.service_type)
@@ -201,7 +259,7 @@ export default function Profile() {
                   </div>
 
                   <div className="mt-3 space-y-1.5">
-                    <StarRating rating={profile.rating || 0} total={profile.total_reviews || 0} />
+                    <StarRating rating={profile.average_rating || profile.rating || 0} total={profile.total_reviews || 0} />
                     <div className="flex items-center gap-1.5 text-sm text-gray-500">
                       <MapPin className="w-4 h-4" />
                       {profile.city || 'Portugal'}
@@ -366,8 +424,8 @@ export default function Profile() {
               </div>
 
               <div className="space-y-4">
-                {/* Booking type toggle (care pros only) */}
-                {isCarePro && profile.daily_rate && profile.hourly_rate && (
+                {/* Booking type toggle — visible for any professional with both rates */}
+                {profile.daily_rate && profile.hourly_rate && (
                   <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-xl">
                     <button
                       type="button"
@@ -503,10 +561,20 @@ export default function Profile() {
 
                 <button
                   onClick={handleBook}
-                  className="btn-primary w-full text-base py-4"
+                  disabled={bookingLoading}
+                  className="btn-primary w-full text-base py-4 disabled:opacity-60"
                 >
-                  <CreditCard className="w-5 h-5" />
-                  Agendar e Pagar
+                  {bookingLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      A verificar disponibilidade...
+                    </span>
+                  ) : (
+                    <>
+                      <CreditCard className="w-5 h-5" />
+                      Agendar e Pagar
+                    </>
+                  )}
                 </button>
 
                 {!user && (

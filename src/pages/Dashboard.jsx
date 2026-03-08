@@ -17,6 +17,82 @@ import MedicationAlarms from '../components/dashboard/MedicationAlarms'
 import AddHoursModal from '../components/dashboard/AddHoursModal'
 import ServiceManager from '../components/dashboard/ServiceManager'
 
+/* ── Rating Modal ── */
+function RatingModal({ booking, reviewerRole, onClose, onSubmit, loading }) {
+  const [rating, setRating]   = useState(0)
+  const [comment, setComment] = useState('')
+  const isProvider    = reviewerRole === 'professional'
+  const reviewedName  = isProvider ? booking.client?.full_name : booking.provider?.full_name
+  const title         = isProvider ? 'Como foi o cliente?' : 'Como foi o serviço?'
+  const subtitle      = isProvider ? 'Avalia o comportamento e comunicação do cliente.' : 'Avalia o profissional que te prestou serviço.'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5">
+        <div className="text-center">
+          <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+          {reviewedName && <p className="text-sm font-medium text-primary-600 mt-0.5">{reviewedName}</p>}
+          <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
+        </div>
+
+        {/* Star picker */}
+        <div className="flex justify-center gap-3">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setRating(n)}
+              className="transition-transform hover:scale-110 active:scale-95"
+            >
+              <Star className={`w-10 h-10 ${n <= rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'}`} />
+            </button>
+          ))}
+        </div>
+        {rating > 0 && (
+          <p className="text-center text-sm font-semibold text-amber-600">
+            {['', 'Mau', 'Razoável', 'Bom', 'Muito bom', 'Excelente'][rating]}
+          </p>
+        )}
+
+        <textarea
+          rows={3}
+          className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm resize-none
+                     focus:outline-none focus:ring-2 focus:ring-primary-300 placeholder-gray-300"
+          placeholder="Comentário opcional..."
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        />
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold
+                       text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Mais tarde
+          </button>
+          <button
+            onClick={() => onSubmit(rating, comment)}
+            disabled={loading || rating === 0}
+            className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white
+                       text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
+          >
+            {loading ? (
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            ) : (
+              <>
+                <Star className="w-4 h-4" />
+                Enviar Avaliação
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Finish Service Confirmation Modal ── */
 function FinishServiceModal({ booking, onCancel, onConfirm, loading }) {
   return (
@@ -170,11 +246,11 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                 {formatDate(booking.scheduled_date)} às {booking.scheduled_time?.slice(0, 5)}
                 {booking.duration_hours && ` · ${booking.duration_hours}h`}
               </p>
-              {booking.provider?.rating > 0 && !isProvider && (
+              {!isProvider && (booking.provider?.average_rating > 0 || booking.provider?.rating > 0) && (
                 <div className="flex items-center gap-1 mt-1">
                   <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
                   <span className="text-xs font-semibold text-gray-600">
-                    {Number(booking.provider.rating).toFixed(1)}
+                    {Number(booking.provider.average_rating || booking.provider.rating).toFixed(1)}
                   </span>
                   <span className="text-xs text-gray-400">({booking.provider.total_reviews})</span>
                 </div>
@@ -271,11 +347,21 @@ export default function Dashboard() {
   const [finishBooking, setFinishBooking]     = useState(null)
   const [finishLoading, setFinishLoading]     = useState(false)
   const [successMsg, setSuccessMsg]           = useState(null)
+  const [ratingBooking, setRatingBooking]     = useState(null)
+  const [ratingLoading, setRatingLoading]     = useState(false)
+  const [profRating, setProfRating]           = useState(null)
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
 
   useEffect(() => { fetchBookings() }, [])
+
+  // Fetch professional's own average rating to show in stats
+  useEffect(() => {
+    if (!isProvider || !user) return
+    supabase.from('profiles').select('average_rating, total_reviews').eq('id', user.id).single()
+      .then(({ data }) => { if (data?.total_reviews > 0) setProfRating(data.average_rating) })
+  }, [isProvider, user])
 
   // Client: subscribe to booking completions via Supabase Realtime
   useEffect(() => {
@@ -294,10 +380,14 @@ export default function Dashboard() {
           if (payload.new?.status === 'completed') {
             addNotification({
               id: Date.now(),
-              message: 'O seu serviço foi finalizado com sucesso! Obrigado por usar o CareConnect.',
+              message: 'O seu serviço foi finalizado! Avalia o profissional.',
               type: 'success',
             })
-            fetchBookings()
+            fetchBookings().then(() => {
+              // Show rating modal — find full booking object after refresh
+              const completed = (bookings || []).find((b) => b.id === payload.new.id)
+              if (completed) setRatingBooking({ ...completed, reviewerRole: 'client' })
+            })
           }
         }
       )
@@ -308,14 +398,11 @@ export default function Dashboard() {
   const handleFinishService = useCallback(async () => {
     if (!finishBooking) return
     setFinishLoading(true)
+    const snapshot = finishBooking  // save reference before clearing
     const now = new Date().toISOString()
     const { error } = await supabase
       .from('bookings')
-      .update({
-        status: 'completed',
-        payment_status: 'released',
-        completed_at: now,
-      })
+      .update({ status: 'completed', payment_status: 'released', completed_at: now })
       .eq('id', finishBooking.id)
 
     setFinishLoading(false)
@@ -323,12 +410,49 @@ export default function Dashboard() {
 
     if (error) {
       setSuccessMsg({ type: 'error', text: 'Erro ao finalizar o serviço. Tenta novamente.' })
+      setTimeout(() => setSuccessMsg(null), 6000)
     } else {
-      setSuccessMsg({ type: 'success', text: 'Serviço finalizado com sucesso! O pagamento será processado em breve.' })
       fetchBookings()
+      // Provider rates the client immediately after finishing
+      setRatingBooking({ ...snapshot, reviewerRole: 'professional' })
     }
-    setTimeout(() => setSuccessMsg(null), 6000)
   }, [finishBooking, fetchBookings])
+
+  const submitRating = useCallback(async (rating, comment) => {
+    if (!ratingBooking || rating === 0) return
+    setRatingLoading(true)
+    const isProviderReviewer = ratingBooking.reviewerRole === 'professional'
+    const reviewedId = isProviderReviewer ? ratingBooking.client_id : ratingBooking.provider_id
+    try {
+      const { error: reviewErr } = await supabase.from('reviews').insert({
+        reviewer_id: user.id,
+        reviewed_id: reviewedId,
+        booking_id:  ratingBooking.id,
+        rating,
+        comment:     comment.trim() || null,
+      })
+      if (reviewErr) throw reviewErr
+
+      // Recalculate average_rating and total_reviews for the reviewed profile
+      const { data: allReviews } = await supabase
+        .from('reviews').select('rating').eq('reviewed_id', reviewedId)
+      if (allReviews?.length) {
+        const avg = allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length
+        await supabase.from('profiles').update({
+          average_rating: parseFloat(avg.toFixed(2)),
+          total_reviews:  allReviews.length,
+        }).eq('id', reviewedId)
+      }
+      setRatingBooking(null)
+      setSuccessMsg({ type: 'success', text: 'Avaliação enviada com sucesso! Obrigado.' })
+      setTimeout(() => setSuccessMsg(null), 4000)
+    } catch {
+      setSuccessMsg({ type: 'error', text: 'Erro ao enviar avaliação. Tenta novamente.' })
+      setTimeout(() => setSuccessMsg(null), 4000)
+    } finally {
+      setRatingLoading(false)
+    }
+  }, [ratingBooking, user])
 
   const filteredBookings = (bookings || []).filter((b) => {
     if (filter === 'all')    return true
@@ -402,7 +526,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Stats ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className={`grid grid-cols-1 gap-4 mb-8 ${isProvider && profRating ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <StatCard
             icon={CalendarDays}
             value={bookings.length}
@@ -422,6 +546,15 @@ export default function Dashboard() {
             color="text-emerald-600"
             bg="bg-emerald-50"
           />
+          {isProvider && profRating && (
+            <StatCard
+              icon={Star}
+              value={`⭐ ${Number(profRating).toFixed(1)}`}
+              label="Minha avaliação"
+              color="text-amber-600"
+              bg="bg-amber-50"
+            />
+          )}
         </div>
 
         {/* ── Service Manager (providers only) ── */}
@@ -527,6 +660,17 @@ export default function Dashboard() {
           onCancel={() => setFinishBooking(null)}
           onConfirm={handleFinishService}
           loading={finishLoading}
+        />
+      )}
+
+      {/* Rating Modal — shown after service completion for both parties */}
+      {ratingBooking && (
+        <RatingModal
+          booking={ratingBooking}
+          reviewerRole={ratingBooking.reviewerRole}
+          onClose={() => setRatingBooking(null)}
+          onSubmit={submitRating}
+          loading={ratingLoading}
         />
       )}
 
