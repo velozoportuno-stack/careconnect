@@ -4,6 +4,10 @@ import { supabase } from '../../lib/supabase'
 import { useAppStore } from '../../store/appStore'
 import { SERVICE_TYPE_LABELS } from '../../utils/constants'
 
+// Pure helper — defined outside component so it's not re-created on every render
+const getServiceLabel = (type) =>
+  type ? (SERVICE_TYPE_LABELS[type] || type) : null
+
 export default function ServiceManager() {
   const { user } = useAppStore()
   const [slot1Type, setSlot1Type] = useState(null)   // from profiles
@@ -11,6 +15,8 @@ export default function ServiceManager() {
   const [loading, setLoading]    = useState(true)
 
   useEffect(() => {
+    if (!user?.id) { setLoading(false); return }
+
     async function fetchSlots() {
       const [{ data: prof }, { data: svc2, error: e2 }] = await Promise.all([
         // Perfil 1 — always from profiles table
@@ -31,12 +37,9 @@ export default function ServiceManager() {
       setLoading(false)
     }
     fetchSlots()
-  }, [])
+  }, [user?.id]) // re-fetch if user changes
 
   if (loading) return <div className="card animate-pulse h-16 mb-6" />
-
-  const label = (type) =>
-    type ? (SERVICE_TYPE_LABELS[type] || type) : null
 
   return (
     <div className="card mb-6">
@@ -46,8 +49,8 @@ export default function ServiceManager() {
       </div>
       <div className="space-y-1">
         {[
-          { num: 1, value: label(slot1Type) },
-          { num: 2, value: label(slot2Type) },
+          { num: 1, value: getServiceLabel(slot1Type) },
+          { num: 2, value: getServiceLabel(slot2Type) },
         ].map(({ num, value }) => (
           <p key={num} className="text-sm text-gray-700">
             <span className="font-semibold text-gray-900">Perfil {num}</span>

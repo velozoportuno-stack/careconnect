@@ -92,7 +92,7 @@ export default function EditProfile() {
     // Only load Perfil 2 from provider_services slot=2.
     const { data: s2, error } = await supabase
       .from('provider_services')
-      .select('*')
+      .select('service_type, hourly_rate, daily_rate, description, nursing_license, nursing_license_country')
       .eq('professional_id', user.id)
       .eq('slot', 2)
       .maybeSingle()
