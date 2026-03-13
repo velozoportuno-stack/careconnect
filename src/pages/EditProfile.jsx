@@ -204,6 +204,31 @@ export default function EditProfile() {
     return { url: urlData.publicUrl, uploadError: null }
   }
 
+  // Explicit check→update/insert for a single slot — avoids upsert/constraint issues
+  async function saveSlot(slotNumber, fields) {
+    console.log(`[EditProfile] saving slot ${slotNumber}:`, fields)
+    const { data: existing, error: fetchErr } = await supabase
+      .from('provider_services')
+      .select('id')
+      .eq('provider_id', user.id)
+      .eq('slot', slotNumber)
+      .maybeSingle()
+    if (fetchErr) { console.error(`[EditProfile] slot ${slotNumber} fetch error:`, fetchErr); return }
+
+    if (existing) {
+      const { error } = await supabase
+        .from('provider_services')
+        .update(fields)
+        .eq('id', existing.id)
+      if (error) console.error(`[EditProfile] slot ${slotNumber} update error:`, error)
+    } else {
+      const { error } = await supabase
+        .from('provider_services')
+        .insert({ provider_id: user.id, slot: slotNumber, is_available: true, ...fields })
+      if (error) console.error(`[EditProfile] slot ${slotNumber} insert error:`, error)
+    }
+  }
+
   async function handleSave() {
     setSaving(true)
     setError(null)
@@ -283,10 +308,7 @@ export default function EditProfile() {
       // Save both service slots to provider_services (professionals only)
       if (isProvider && profile.service_type) {
         const nl1 = LICENSE_REQUIRED.has(profile.service_type)
-        console.log('[EditProfile] upserting slot 1:', { category: profile.service_type, slot: 1 })
-        const { error: e1 } = await supabase.from('provider_services').upsert({
-          provider_id:             user.id,
-          slot:                    1,
+        await saveSlot(1, {
           category:                profile.service_type,
           title:                   SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço',
           price_per_hour:          profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
@@ -294,16 +316,11 @@ export default function EditProfile() {
           description:             profile.bio         || null,
           nursing_license:         nl1 ? (profile.nursing_license?.trim() || null) : null,
           nursing_license_country: nl1 ? (profile.country || 'PT')                  : null,
-          is_available:            true,
-        }, { onConflict: 'provider_id,slot' })
-        if (e1) console.error('[EditProfile] slot 1 upsert error:', e1)
+        })
       }
       if (isProvider && profile2.category) {
         const nl2 = LICENSE_REQUIRED.has(profile2.category)
-        console.log('[EditProfile] upserting slot 2:', { category: profile2.category, slot: 2 })
-        const { error: e2 } = await supabase.from('provider_services').upsert({
-          provider_id:             user.id,
-          slot:                    2,
+        await saveSlot(2, {
           category:                profile2.category,
           title:                   SERVICE_TYPE_LABELS[profile2.category] || 'Serviço',
           price_per_hour:          profile2.price_per_hour ? parseFloat(profile2.price_per_hour) : null,
@@ -311,9 +328,7 @@ export default function EditProfile() {
           description:             profile2.description    || null,
           nursing_license:         nl2 ? (profile2.nursing_license?.trim() || null) : null,
           nursing_license_country: nl2 ? (profile2.nursing_license_country || 'PT')  : null,
-          is_available:            true,
-        }, { onConflict: 'provider_id,slot' })
-        if (e2) console.error('[EditProfile] slot 2 upsert error:', e2)
+        })
       }
 
       setProfile((p) => ({ ...p, avatar_url: avatarUrl }))
