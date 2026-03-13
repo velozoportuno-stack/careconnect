@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   Camera, Upload, Save, ChevronLeft, User, CreditCard,
   CheckCircle, AlertCircle, Loader2, MapPin, CalendarDays, Hash,
-  ChevronDown, ChevronUp, Briefcase,
+
 } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
@@ -54,25 +54,21 @@ export default function EditProfile() {
   const [availSaving, setAvailSaving]   = useState(false)
   const [availSuccess, setAvailSuccess] = useState(false)
 
-  // Service slots state (provider only)
-  const EMPTY_SLOT_FORM = { category: '', price_per_hour: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT' }
-  const [slot1, setSlot1]           = useState(EMPTY_SLOT_FORM)
-  const [slot2, setSlot2]           = useState(EMPTY_SLOT_FORM)
-  const [slot1Open, setSlot1Open]   = useState(false)
-  const [slot2Open, setSlot2Open]   = useState(false)
-  const [slotSaving, setSlotSaving] = useState(null) // 1 | 2
-  const [slotSuccess, setSlotSuccess] = useState(null) // 1 | 2
+  // Profile 2 state — second service slot (provider only)
+  const [profile2, setProfile2] = useState({
+    category: '', price_per_hour: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
+  })
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
   }, [])
 
-  // Load availability and service slots once userRole resolves
+  // Load availability and profile 2 once userRole resolves
   useEffect(() => {
     if (userRole === 'professional') {
       loadAvailability()
-      loadSlots()
+      loadProfile2()
     }
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -92,44 +88,19 @@ export default function EditProfile() {
     setLoading(false)
   }
 
-  async function loadSlots() {
-    const [{ data: s1 }, { data: s2 }] = await Promise.all([
-      supabase.from('provider_services').select('*').eq('provider_id', user.id).eq('slot', 1).maybeSingle(),
-      supabase.from('provider_services').select('*').eq('provider_id', user.id).eq('slot', 2).maybeSingle(),
-    ])
-    if (s1) { setSlot1({ ...s1, price_per_hour: s1.price_per_hour ?? '', daily_rate: s1.daily_rate ?? '', nursing_license: s1.nursing_license || '', nursing_license_country: s1.nursing_license_country || 'PT' }); setSlot1Open(true) }
-    if (s2) { setSlot2({ ...s2, price_per_hour: s2.price_per_hour ?? '', daily_rate: s2.daily_rate ?? '', nursing_license: s2.nursing_license || '', nursing_license_country: s2.nursing_license_country || 'PT' }); setSlot2Open(true) }
-  }
-
-  async function handleSaveSlot(slotNumber) {
-    const form = slotNumber === 1 ? slot1 : slot2
-    if (!form.category) return
-    setSlotSaving(slotNumber)
-    const needsLicense = LICENSE_REQUIRED.has(form.category)
-    const { error } = await supabase
-      .from('provider_services')
-      .upsert(
-        {
-          provider_id:             user.id,
-          slot:                    slotNumber,
-          category:                form.category,
-          title:                   SERVICE_TYPE_LABELS[form.category] || 'Serviço',
-          price_per_hour:          form.price_per_hour ? parseFloat(form.price_per_hour) : null,
-          daily_rate:              form.daily_rate     ? parseFloat(form.daily_rate)     : null,
-          description:             form.description    || null,
-          nursing_license:         needsLicense ? (form.nursing_license?.trim() || null) : null,
-          nursing_license_country: needsLicense ? (form.nursing_license_country || 'PT') : null,
-          is_available:            true,
-        },
-        { onConflict: 'provider_id,slot' }
-      )
-    if (!error) {
-      setSlotSuccess(slotNumber)
-      setTimeout(() => setSlotSuccess(null), 4000)
-    } else {
-      console.error('[EditProfile] save slot error:', error)
+  async function loadProfile2() {
+    const { data } = await supabase
+      .from('provider_services').select('*').eq('provider_id', user.id).eq('slot', 2).maybeSingle()
+    if (data) {
+      setProfile2({
+        category:                data.category               || '',
+        price_per_hour:          data.price_per_hour         ?? '',
+        daily_rate:              data.daily_rate             ?? '',
+        description:             data.description            || '',
+        nursing_license:         data.nursing_license        || '',
+        nursing_license_country: data.nursing_license_country || 'PT',
+      })
     }
-    setSlotSaving(null)
   }
 
   // Load availability when switching to that tab
@@ -292,6 +263,38 @@ export default function EditProfile() {
         }).eq('id', user.id)
       }
 
+      // Save both service slots to provider_services (professionals only)
+      if (isProvider && profile.service_type) {
+        const nl1 = LICENSE_REQUIRED.has(profile.service_type)
+        await supabase.from('provider_services').upsert({
+          provider_id:             user.id,
+          slot:                    1,
+          category:                profile.service_type,
+          title:                   SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço',
+          price_per_hour:          profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
+          daily_rate:              profile.daily_rate  ? parseFloat(profile.daily_rate)  : null,
+          description:             profile.bio         || null,
+          nursing_license:         nl1 ? (profile.nursing_license || null) : null,
+          nursing_license_country: nl1 ? (profile.country || 'PT')         : null,
+          is_available:            true,
+        }, { onConflict: 'provider_id,slot' })
+      }
+      if (isProvider && profile2.category) {
+        const nl2 = LICENSE_REQUIRED.has(profile2.category)
+        await supabase.from('provider_services').upsert({
+          provider_id:             user.id,
+          slot:                    2,
+          category:                profile2.category,
+          title:                   SERVICE_TYPE_LABELS[profile2.category] || 'Serviço',
+          price_per_hour:          profile2.price_per_hour ? parseFloat(profile2.price_per_hour) : null,
+          daily_rate:              profile2.daily_rate     ? parseFloat(profile2.daily_rate)     : null,
+          description:             profile2.description    || null,
+          nursing_license:         nl2 ? (profile2.nursing_license?.trim() || null) : null,
+          nursing_license_country: nl2 ? (profile2.nursing_license_country || 'PT')  : null,
+          is_available:            true,
+        }, { onConflict: 'provider_id,slot' })
+      }
+
       setProfile((p) => ({ ...p, avatar_url: avatarUrl }))
       if (!uploadError) setError(null)
       setSuccess(true)
@@ -374,10 +377,7 @@ export default function EditProfile() {
           {[
             { key: 'profile',      label: 'Perfil',          Icon: User },
             { key: 'bank',         label: 'Conta Bancária',   Icon: CreditCard },
-            ...(isProvider ? [
-              { key: 'services',      label: 'Serviços',        Icon: Briefcase },
-              { key: 'availability',  label: 'Disponibilidade', Icon: CalendarDays },
-            ] : []),
+            ...(isProvider ? [{ key: 'availability', label: 'Disponibilidade', Icon: CalendarDays }] : []),
           ].map(({ key, label, Icon }) => (
             <button
               key={key}
@@ -648,153 +648,100 @@ export default function EditProfile() {
                 />
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Services tab — 2 expandable slot forms */}
-        {tab === 'services' && (
-          <div className="space-y-4">
-            {[
-              { slotNum: 1, form: slot1, setForm: setSlot1, open: slot1Open, setOpen: setSlot1Open },
-              { slotNum: 2, form: slot2, setForm: setSlot2, open: slot2Open, setOpen: setSlot2Open },
-            ].map(({ slotNum, form, setForm, open, setOpen }) => {
-              const needsLicense = LICENSE_REQUIRED.has(form.category)
-              return (
-                <div key={slotNum} className="card overflow-hidden">
-                  {/* Accordion header */}
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between px-1 py-1 text-left"
-                    onClick={() => setOpen((v) => !v)}
+            {/* Perfil 2 — second service slot */}
+            {isProvider && (
+              <div className="card space-y-4">
+                <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                  <span className="text-base">📋</span>
+                  <h3 className="font-bold text-gray-900">Perfil 2</h3>
+                  <span className="text-xs text-gray-400">— segundo serviço (opcional)</span>
+                </div>
+
+                <div>
+                  <label className="input-label">Profissão / Tipo de serviço</label>
+                  <select
+                    className="input-field"
+                    value={profile2.category}
+                    onChange={(e) => setProfile2((p) => ({ ...p, category: e.target.value }))}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">📋</span>
-                      <span className="font-bold text-gray-900">Perfil {slotNum}</span>
-                      {form.category && (
-                        <span className="text-xs text-primary-600 font-medium">
-                          — {SERVICE_TYPE_LABELS[form.category]}
-                        </span>
-                      )}
-                      {!form.category && (
-                        <span className="text-xs text-gray-400 font-medium">— Não configurado</span>
-                      )}
-                    </div>
-                    {open
-                      ? <ChevronUp className="w-4 h-4 text-gray-400" />
-                      : <ChevronDown className="w-4 h-4 text-gray-400" />}
-                  </button>
+                    <option value="">Nenhum (não configurado)</option>
+                    <optgroup label="── Saúde e Cuidado ──">
+                      {SERVICE_TYPES.filter((t) => t.group === 'health').map((t) => (
+                        <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="── Serviços Gerais ──">
+                      {SERVICE_TYPES.filter((t) => t.group === 'general' && t.value !== 'other').map((t) => (
+                        <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
 
-                  {open && (
-                    <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
-                      {/* Category */}
+                {profile2.category && (
+                  <>
+                    <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile2.category) ? 'grid-cols-2' : 'grid-cols-1'}`}>
                       <div>
-                        <label className="input-label">Profissão / Tipo de serviço *</label>
-                        <select
-                          className="input-field"
-                          value={form.category}
-                          onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                        >
-                          <option value="" disabled>Seleciona a profissão...</option>
-                          <optgroup label="── Saúde e Cuidado ──">
-                            {SERVICE_TYPES.filter((t) => t.group === 'health').map((t) => (
-                              <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="── Serviços Gerais ──">
-                            {SERVICE_TYPES.filter((t) => t.group === 'general' && t.value !== 'other').map((t) => (
-                              <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
-                            ))}
-                          </optgroup>
-                        </select>
-                      </div>
-
-                      {/* Rates */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="input-label">⏱ Preço/hora *</label>
-                          <input
-                            type="number" step="0.50" min="1" className="input-field" placeholder="15.00"
-                            value={form.price_per_hour}
-                            onChange={(e) => setForm((f) => ({ ...f, price_per_hour: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <label className="input-label">📅 Preço/dia</label>
-                          <input
-                            type="number" step="1" min="1" className="input-field" placeholder="80"
-                            value={form.daily_rate || ''}
-                            onChange={(e) => setForm((f) => ({ ...f, daily_rate: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-
-                      {/* License — health professions only */}
-                      {needsLicense && (
-                        <div className="space-y-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
-                          <div>
-                            <label className="input-label">
-                              {getLicenseLabel(form.nursing_license_country || country, form.category)} *
-                            </label>
-                            <input
-                              type="text" className="input-field"
-                              placeholder={form.nursing_license_country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
-                              value={form.nursing_license}
-                              onChange={(e) => setForm((f) => ({ ...f, nursing_license: e.target.value }))}
-                            />
-                          </div>
-                          <div>
-                            <label className="input-label">País da licença</label>
-                            <select
-                              className="input-field"
-                              value={form.nursing_license_country}
-                              onChange={(e) => setForm((f) => ({ ...f, nursing_license_country: e.target.value }))}
-                            >
-                              <option value="PT">🇵🇹 Portugal</option>
-                              <option value="BR">🇧🇷 Brasil</option>
-                            </select>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Description */}
-                      <div>
-                        <label className="input-label">Descrição do serviço</label>
-                        <textarea
-                          rows={3} className="input-field resize-none text-sm"
-                          placeholder="O que inclui este serviço?"
-                          value={form.description || ''}
-                          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                        <label className="input-label">⏱ Valor por hora (€)</label>
+                        <input
+                          type="number" step="0.50" min="1" className="input-field" placeholder="15.00"
+                          value={profile2.price_per_hour}
+                          onChange={(e) => setProfile2((p) => ({ ...p, price_per_hour: e.target.value }))}
                         />
                       </div>
-
-                      {/* Success feedback */}
-                      {slotSuccess === slotNum && (
-                        <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-                          <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                          Perfil {slotNum} guardado com sucesso!
+                      {['caregiver', 'nurse'].includes(profile2.category) && (
+                        <div>
+                          <label className="input-label">📅 Valor por dia (€)</label>
+                          <input
+                            type="number" step="1" min="1" className="input-field" placeholder="80"
+                            value={profile2.daily_rate || ''}
+                            onChange={(e) => setProfile2((p) => ({ ...p, daily_rate: e.target.value }))}
+                          />
                         </div>
                       )}
-
-                      {/* Save button */}
-                      <button
-                        onClick={() => handleSaveSlot(slotNum)}
-                        disabled={slotSaving === slotNum || !form.category}
-                        className="btn-primary w-full py-3 text-sm disabled:opacity-60"
-                      >
-                        {slotSaving === slotNum ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            A guardar...
-                          </span>
-                        ) : (
-                          <><Save className="w-4 h-4" /> Guardar Perfil {slotNum}</>
-                        )}
-                      </button>
                     </div>
-                  )}
-                </div>
-              )
-            })}
+
+                    {LICENSE_REQUIRED.has(profile2.category) && (
+                      <div className="space-y-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                        <div>
+                          <label className="input-label">
+                            {getLicenseLabel(profile2.nursing_license_country || country, profile2.category)}
+                          </label>
+                          <input
+                            type="text" className="input-field"
+                            placeholder={profile2.nursing_license_country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
+                            value={profile2.nursing_license}
+                            onChange={(e) => setProfile2((p) => ({ ...p, nursing_license: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="input-label">País da licença</label>
+                          <select
+                            className="input-field"
+                            value={profile2.nursing_license_country}
+                            onChange={(e) => setProfile2((p) => ({ ...p, nursing_license_country: e.target.value }))}
+                          >
+                            <option value="PT">🇵🇹 Portugal</option>
+                            <option value="BR">🇧🇷 Brasil</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="input-label">Descrição do serviço</label>
+                      <textarea
+                        rows={3} className="input-field resize-none text-sm"
+                        placeholder="O que inclui este serviço?"
+                        value={profile2.description}
+                        onChange={(e) => setProfile2((p) => ({ ...p, description: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
