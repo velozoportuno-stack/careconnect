@@ -196,7 +196,45 @@ export default function ServiceManager() {
       .select('*')
       .eq('provider_id', user.id)
       .order('created_at', { ascending: true })
-    setServices(data || [])
+
+    if (error) {
+      console.error('[ServiceManager] fetch error:', error)
+      setServices([])
+      setLoading(false)
+      return
+    }
+
+    if (data?.length > 0) {
+      setServices(data)
+      setLoading(false)
+      return
+    }
+
+    // No services yet — check profile and auto-create the first row
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('service_type, hourly_rate, daily_rate, bio')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.service_type) {
+      const title = SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço'
+      const { data: created } = await supabase
+        .from('provider_services')
+        .insert({
+          provider_id:   user.id,
+          category:      profile.service_type,
+          title,
+          price_per_hour: profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
+          daily_rate:    profile.daily_rate   ? parseFloat(profile.daily_rate)  : null,
+          bio:           profile.bio || null,
+          is_available:  true,
+        })
+        .select()
+      setServices(created || [])
+    } else {
+      setServices([])
+    }
     setLoading(false)
   }
 
