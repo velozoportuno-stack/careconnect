@@ -42,6 +42,9 @@ export default function Register() {
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [country, setCountry] = useState('PT')
   const [cleaningTypesSelected, setCleaningTypesSelected] = useState([])
+  const [taxIdType, setTaxIdType] = useState('particular') // 'particular' | 'empresa'
+  const [taxIdValue, setTaxIdValue] = useState('')
+  const [taxIdError, setTaxIdError] = useState('')
   const avatarFileRef = useRef(null)
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm({
@@ -51,6 +54,54 @@ export default function Register() {
   const needsLicense = LICENSE_REQUIRED.has(selectedServiceType)
   const isCleanerType = selectedServiceType === 'cleaner'
   const isOtherType = selectedServiceType === 'other'
+
+  // ── Tax ID config ────────────────────────────────────────────────────────────
+  const TAX_TYPE_NAME = {
+    PT_particular: 'NIF', PT_empresa: 'NIPC',
+    BR_particular: 'CPF', BR_empresa:  'CNPJ',
+  }
+  const taxTypeName = TAX_TYPE_NAME[`${country}_${taxIdType}`] || 'NIF'
+
+  function taxIdLabel() {
+    if (country === 'PT') return taxIdType === 'particular' ? 'NIF' : 'NIPC'
+    return taxIdType === 'particular' ? 'CPF' : 'CNPJ'
+  }
+
+  function maskTaxId(raw) {
+    const d = raw.replace(/\D/g, '')
+    if (country === 'BR' && taxIdType === 'particular') {
+      const s = d.slice(0, 11)
+      if (s.length <= 3) return s
+      if (s.length <= 6) return `${s.slice(0,3)}.${s.slice(3)}`
+      if (s.length <= 9) return `${s.slice(0,3)}.${s.slice(3,6)}.${s.slice(6)}`
+      return `${s.slice(0,3)}.${s.slice(3,6)}.${s.slice(6,9)}-${s.slice(9)}`
+    }
+    if (country === 'BR' && taxIdType === 'empresa') {
+      const s = d.slice(0, 14)
+      if (s.length <= 2) return s
+      if (s.length <= 5) return `${s.slice(0,2)}.${s.slice(2)}`
+      if (s.length <= 8) return `${s.slice(0,2)}.${s.slice(2,5)}.${s.slice(5)}`
+      if (s.length <= 12) return `${s.slice(0,2)}.${s.slice(2,5)}.${s.slice(5,8)}/${s.slice(8)}`
+      return `${s.slice(0,2)}.${s.slice(2,5)}.${s.slice(5,8)}/${s.slice(8,12)}-${s.slice(12)}`
+    }
+    // PT NIF / NIPC — 9 digits, no formatting
+    return d.slice(0, 9)
+  }
+
+  function validateTaxId(val) {
+    if (!val) return ''
+    const digits = val.replace(/\D/g, '')
+    if (country === 'PT') return digits.length === 9 ? '' : `${taxTypeName} deve ter 9 dígitos`
+    if (country === 'BR' && taxIdType === 'particular') return digits.length === 11 ? '' : 'CPF deve ter 11 dígitos'
+    if (country === 'BR' && taxIdType === 'empresa')    return digits.length === 14 ? '' : 'CNPJ deve ter 14 dígitos'
+    return ''
+  }
+
+  function handleTaxIdChange(e) {
+    const masked = maskTaxId(e.target.value)
+    setTaxIdValue(masked)
+    setTaxIdError(validateTaxId(masked))
+  }
 
   function handleRoleSelect(type) {
     setUserType(type)
@@ -62,6 +113,9 @@ export default function Register() {
     setCountry(val)
     setValue('country', val)
     setValue('city', '')
+    setTaxIdValue('')
+    setTaxIdError('')
+    setTaxIdType('particular')
   }
 
   function handleAvatarChange(e) {
@@ -112,6 +166,17 @@ export default function Register() {
           cleaning_description: values.cleaning_description || null,
         }),
       }),
+    }
+
+    // Validate tax ID before submit
+    if (taxIdValue) {
+      const err = validateTaxId(taxIdValue)
+      if (err) { setTaxIdError(err); setLoading(false); return }
+    }
+
+    if (taxIdValue) {
+      userData.tax_id      = taxIdValue.replace(/\D/g, '')
+      userData.tax_id_type = taxTypeName
     }
 
     const { data, error: signUpError } = await signUp(values.email, values.password, userData)
@@ -399,6 +464,48 @@ export default function Register() {
               />
               <p className="text-xs text-gray-400 mt-1">Usada para calcular distâncias e agendar visitas.</p>
             </div>
+
+            {/* Tax ID — Portugal (NIF/NIPC) or Brazil (CPF/CNPJ) */}
+            {(country === 'PT' || country === 'BR') && (
+              <div>
+                <label className="input-label">{taxIdLabel()} (Número Fiscal)</label>
+                <div className="flex gap-3 mb-2">
+                  {['particular', 'empresa'].map((t) => (
+                    <label
+                      key={t}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 cursor-pointer text-sm font-medium transition-all
+                                  ${taxIdType === t ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                    >
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        checked={taxIdType === t}
+                        onChange={() => { setTaxIdType(t); setTaxIdValue(''); setTaxIdError('') }}
+                      />
+                      <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center
+                                       border-current flex-shrink-0">
+                        {taxIdType === t && <span className="w-2 h-2 rounded-full bg-primary-500 block" />}
+                      </span>
+                      {t === 'particular'
+                        ? `Particular (${country === 'PT' ? 'NIF' : 'CPF'})`
+                        : `Empresa (${country === 'PT' ? 'NIPC' : 'CNPJ'})`}
+                    </label>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className={`input-field ${taxIdError ? 'border-red-300 focus:ring-red-200' : ''}`}
+                  placeholder={
+                    country === 'PT' ? '123456789' :
+                    taxIdType === 'particular' ? '000.000.000-00' : '00.000.000/0001-00'
+                  }
+                  value={taxIdValue}
+                  onChange={handleTaxIdChange}
+                />
+                {taxIdError && <p className="text-red-500 text-xs mt-1">{taxIdError}</p>}
+              </div>
+            )}
 
             {/* Professional-only fields */}
             {!isClient && (

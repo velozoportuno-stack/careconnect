@@ -251,9 +251,9 @@ export default function ServiceManager() {
       {services.length === 0 ? (
         <div className="text-center py-10">
           <Briefcase className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">Ainda não tens serviços criados.</p>
+          <p className="text-gray-500 font-medium">Ainda não tens serviços registados.</p>
           <p className="text-sm text-gray-400 mt-1">
-            Adiciona os teus serviços para que os clientes te possam encontrar.
+            Adiciona o teu primeiro serviço!
           </p>
           <button
             onClick={() => setModalData(emptyService())}

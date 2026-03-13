@@ -440,17 +440,59 @@ export default function Dashboard() {
   const [profRating, setProfRating]           = useState(null)
   const [cancelTarget, setCancelTarget]       = useState(null)
   const [cancelLoading, setCancelLoading]     = useState(false)
+  const [weeklyData, setWeeklyData]           = useState(null)
+  const [profCountry, setProfCountry]         = useState('PT')
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
 
   useEffect(() => { fetchBookings() }, [])
 
-  // Fetch professional's own average rating to show in stats
+  // Fetch professional's own average rating + country
   useEffect(() => {
     if (!isProvider || !user) return
-    supabase.from('profiles').select('average_rating, total_reviews').eq('id', user.id).single()
-      .then(({ data }) => { if (data?.total_reviews > 0) setProfRating(data.average_rating) })
+    supabase.from('profiles').select('average_rating, total_reviews, country').eq('id', user.id).single()
+      .then(({ data }) => {
+        if (data?.total_reviews > 0) setProfRating(data.average_rating)
+        if (data?.country) setProfCountry(data.country)
+      })
+  }, [isProvider, user])
+
+  // Fetch weekly earnings for professionals
+  useEffect(() => {
+    if (!isProvider || !user) return
+
+    const now = new Date()
+    const dow = now.getDay() // 0=Sun
+    const diffToMon = dow === 0 ? -6 : 1 - dow
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + diffToMon)
+    monday.setHours(0, 0, 0, 0)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    sunday.setHours(23, 59, 59, 999)
+
+    supabase
+      .from('bookings')
+      .select('completed_at, total_price')
+      .eq('provider_id', user.id)
+      .eq('status', 'completed')
+      .gte('completed_at', monday.toISOString())
+      .lte('completed_at', sunday.toISOString())
+      .then(({ data }) => {
+        const days = Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(monday)
+          d.setDate(monday.getDate() + i)
+          return { date: d, count: 0, total: 0 }
+        })
+        for (const b of (data || [])) {
+          const d = new Date(b.completed_at)
+          const idx = d.getDay() === 0 ? 6 : d.getDay() - 1 // Mon=0 … Sun=6
+          days[idx].count++
+          days[idx].total += parseFloat(b.total_price || 0)
+        }
+        setWeeklyData(days)
+      })
   }, [isProvider, user])
 
   // Provider: subscribe to client-initiated cancellations via Supabase Realtime
@@ -704,6 +746,93 @@ export default function Dashboard() {
 
         {/* ── Service Manager (providers only) ── */}
         {isProvider && <ServiceManager />}
+
+        {/* ── Weekly Earnings (providers only) ── */}
+        {isProvider && weeklyData && (() => {
+          const curr = profCountry === 'BR' ? 'R$' : '€'
+          const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+          const weekTotal = weeklyData.reduce((s, d) => s + d.total, 0)
+          const today = new Date()
+          const todayIdx = today.getDay() === 0 ? 6 : today.getDay() - 1
+
+          return (
+            <div className="card mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <h2 className="text-lg font-bold text-gray-900">Faturamento</h2>
+                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                  Esta semana
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 uppercase border-b border-gray-100">
+                      <th className="text-left py-2 pr-4 font-semibold">Dia</th>
+                      <th className="text-center py-2 px-4 font-semibold">Serviços</th>
+                      <th className="text-right py-2 pl-4 font-semibold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weeklyData.map((row, i) => {
+                      const isToday = i === todayIdx
+                      return (
+                        <tr
+                          key={i}
+                          className={`border-b border-gray-50 transition-colors
+                            ${isToday ? 'bg-emerald-50' : row.count > 0 ? 'bg-white' : ''}`}
+                        >
+                          <td className="py-2.5 pr-4">
+                            <span className={`font-medium ${isToday ? 'text-emerald-700' : 'text-gray-700'}`}>
+                              {DAY_NAMES[i]}
+                            </span>
+                            {isToday && (
+                              <span className="ml-2 text-xs font-semibold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                                hoje
+                              </span>
+                            )}
+                          </td>
+                          <td className="text-center py-2.5 px-4">
+                            {row.count > 0 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full
+                                               bg-emerald-100 text-emerald-700 text-xs font-bold">
+                                {row.count}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                          </td>
+                          <td className={`text-right py-2.5 pl-4 font-semibold
+                                          ${row.total > 0 ? 'text-emerald-700' : 'text-gray-300'}`}>
+                            {row.total > 0 ? `${curr} ${row.total.toFixed(2)}` : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200">
+                      <td className="pt-3 pr-4 text-sm font-bold text-gray-900">Total da semana</td>
+                      <td className="text-center pt-3 px-4 text-sm font-bold text-gray-700">
+                        {weeklyData.reduce((s, d) => s + d.count, 0)}
+                      </td>
+                      <td className="text-right pt-3 pl-4 text-base font-extrabold text-emerald-700">
+                        {curr} {weekTotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {weekTotal === 0 && (
+                <p className="text-center text-sm text-gray-400 mt-4">
+                  Nenhum serviço concluído esta semana.
+                </p>
+              )}
+            </div>
+          )
+        })()}
 
         {/* ── Bookings panel ── */}
         <div className="card">
