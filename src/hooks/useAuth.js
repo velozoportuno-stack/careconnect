@@ -111,6 +111,7 @@ export const useAuth = () => {
       const needsLicense = LICENSE_REQUIRED.has(service_type)
       await supabase.from('provider_services').insert({
         provider_id:    data.user.id,
+        slot:           1,
         category:       service_type,
         title,
         bio:            coreData.bio        || null,
