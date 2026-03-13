@@ -25,16 +25,36 @@ function LoginForm({ role, onSuccess }) {
   const onSubmit = async ({ email, password }) => {
     setLoading(true)
     setError(null)
-    const { error: err } = await signIn(email, password)
-    setLoading(false)
+    const { data: authData, error: err } = await signIn(email, password)
     if (err) {
+      setLoading(false)
       const m = err.message?.toLowerCase() || ''
-      if (m.includes('invalid login'))        setError('Email ou password incorretos.')
+      if (m.includes('invalid login'))           setError('Email ou password incorretos.')
       else if (m.includes('email not confirmed')) setError('Email não confirmado. Verifica a tua caixa de entrada.')
-      else                                    setError('Erro ao entrar. Tenta novamente.')
-    } else {
-      onSuccess()
+      else                                       setError('Erro ao entrar. Tenta novamente.')
+      return
     }
+
+    // Fetch the actual role from profiles and validate against selected tab
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', authData.user.id)
+      .single()
+    setLoading(false)
+
+    if (!profileData?.role) {
+      await supabase.auth.signOut()
+      setError('Conta não encontrada. Verifica se estás a usar o acesso correto.')
+      return
+    }
+    if (profileData.role !== role) {
+      await supabase.auth.signOut()
+      setError('Conta não encontrada. Verifica se estás a usar o acesso correto.')
+      return
+    }
+
+    onSuccess()
   }
 
   const handleGoogle = async () => {
