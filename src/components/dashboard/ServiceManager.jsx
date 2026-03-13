@@ -384,16 +384,22 @@ export default function ServiceManager() {
           <Briefcase className="w-5 h-5 text-primary-600" />
           <h2 className="text-lg font-bold text-gray-900">
             Os meus serviços
-            <span className="ml-1.5 text-base font-normal text-gray-400">({services.length})</span>
+            <span className="ml-1.5 text-base font-normal text-gray-400">({services.length}/2)</span>
           </h2>
         </div>
-        <button
-          onClick={() => setModalData(emptyService(profCountry))}
-          className="btn-primary text-sm py-2 px-4"
-        >
-          <Plus className="w-4 h-4" />
-          Adicionar serviço
-        </button>
+        {services.length >= 2 ? (
+          <p className="text-xs text-amber-600 font-medium bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            Já atingiste o limite de 2 serviços.
+          </p>
+        ) : (
+          <button
+            onClick={() => setModalData(emptyService(profCountry))}
+            className="btn-primary text-sm py-2 px-4"
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar serviço
+          </button>
+        )}
       </div>
 
       {/* Success toast */}
