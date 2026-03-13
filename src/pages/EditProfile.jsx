@@ -58,17 +58,19 @@ export default function EditProfile() {
   const [profile2, setProfile2] = useState({
     category: '', price_per_hour: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
   })
+  // Slot 1 license — loaded from provider_services (not profiles table)
+  const [slot1License, setSlot1License] = useState({ nursing_license: '', nursing_license_country: 'PT' })
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
   }, [])
 
-  // Load availability and profile 2 once userRole resolves
+  // Load availability and service slots once userRole resolves
   useEffect(() => {
     if (userRole === 'professional') {
       loadAvailability()
-      loadProfile2()
+      loadSlots()
     }
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -88,17 +90,25 @@ export default function EditProfile() {
     setLoading(false)
   }
 
-  async function loadProfile2() {
-    const { data } = await supabase
-      .from('provider_services').select('*').eq('provider_id', user.id).eq('slot', 2).maybeSingle()
-    if (data) {
+  async function loadSlots() {
+    const [{ data: s1 }, { data: s2 }] = await Promise.all([
+      supabase.from('provider_services').select('nursing_license, nursing_license_country').eq('provider_id', user.id).eq('slot', 1).maybeSingle(),
+      supabase.from('provider_services').select('*').eq('provider_id', user.id).eq('slot', 2).maybeSingle(),
+    ])
+    if (s1) {
+      setSlot1License({
+        nursing_license:         s1.nursing_license         || '',
+        nursing_license_country: s1.nursing_license_country || 'PT',
+      })
+    }
+    if (s2) {
       setProfile2({
-        category:                data.category               || '',
-        price_per_hour:          data.price_per_hour         ?? '',
-        daily_rate:              data.daily_rate             ?? '',
-        description:             data.description            || '',
-        nursing_license:         data.nursing_license        || '',
-        nursing_license_country: data.nursing_license_country || 'PT',
+        category:                s2.category               || '',
+        price_per_hour:          s2.price_per_hour         ?? '',
+        daily_rate:              s2.daily_rate             ?? '',
+        description:             s2.description            || '',
+        nursing_license:         s2.nursing_license        || '',
+        nursing_license_country: s2.nursing_license_country || 'PT',
       })
     }
   }
@@ -274,8 +284,8 @@ export default function EditProfile() {
           price_per_hour:          profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
           daily_rate:              profile.daily_rate  ? parseFloat(profile.daily_rate)  : null,
           description:             profile.bio         || null,
-          nursing_license:         nl1 ? (profile.nursing_license || null) : null,
-          nursing_license_country: nl1 ? (profile.country || 'PT')         : null,
+          nursing_license:         nl1 ? (slot1License.nursing_license?.trim() || null) : null,
+          nursing_license_country: nl1 ? (slot1License.nursing_license_country || 'PT')  : null,
           is_available:            true,
         }, { onConflict: 'provider_id,slot' })
       }
@@ -491,7 +501,7 @@ export default function EditProfile() {
                     </div>
                   )}
 
-                  {/* License number — health professions only */}
+                  {/* License number — health professions only; loaded from provider_services slot 1 */}
                   {LICENSE_REQUIRED.has(profile?.service_type) && (
                     <div>
                       <label className="input-label">
@@ -500,14 +510,14 @@ export default function EditProfile() {
                       <input
                         className="input-field"
                         placeholder={profile?.country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
-                        value={profile?.nursing_license || ''}
-                        onChange={(e) => setProfile((p) => ({ ...p, nursing_license: e.target.value }))}
+                        value={slot1License.nursing_license}
+                        onChange={(e) => setSlot1License((s) => ({ ...s, nursing_license: e.target.value }))}
                       />
                     </div>
                   )}
 
-                  {/* Hourly rate + daily rate side by side for care roles */}
-                  <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile?.service_type) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {/* Hourly rate + daily rate — always side by side */}
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="input-label">⏱ Valor por hora (€)</label>
                       <input
@@ -519,20 +529,18 @@ export default function EditProfile() {
                         onChange={(e) => setProfile((p) => ({ ...p, hourly_rate: e.target.value }))}
                       />
                     </div>
-                    {['caregiver', 'nurse'].includes(profile?.service_type) && (
-                      <div>
-                        <label className="input-label">📅 Valor por dia (€)</label>
-                        <input
-                          type="number"
-                          step="1"
-                          min="1"
-                          className="input-field"
-                          placeholder="Ex: 80"
-                          value={profile?.daily_rate || ''}
-                          onChange={(e) => setProfile((p) => ({ ...p, daily_rate: e.target.value }))}
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="input-label">📅 Valor por dia (€)</label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        className="input-field"
+                        placeholder="Ex: 80"
+                        value={profile?.daily_rate || ''}
+                        onChange={(e) => setProfile((p) => ({ ...p, daily_rate: e.target.value }))}
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -681,7 +689,7 @@ export default function EditProfile() {
 
                 {profile2.category && (
                   <>
-                    <div className={`grid gap-4 ${['caregiver', 'nurse'].includes(profile2.category) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="input-label">⏱ Valor por hora (€)</label>
                         <input
@@ -690,16 +698,14 @@ export default function EditProfile() {
                           onChange={(e) => setProfile2((p) => ({ ...p, price_per_hour: e.target.value }))}
                         />
                       </div>
-                      {['caregiver', 'nurse'].includes(profile2.category) && (
-                        <div>
-                          <label className="input-label">📅 Valor por dia (€)</label>
-                          <input
-                            type="number" step="1" min="1" className="input-field" placeholder="80"
-                            value={profile2.daily_rate || ''}
-                            onChange={(e) => setProfile2((p) => ({ ...p, daily_rate: e.target.value }))}
-                          />
-                        </div>
-                      )}
+                      <div>
+                        <label className="input-label">📅 Valor por dia (€)</label>
+                        <input
+                          type="number" step="1" min="1" className="input-field" placeholder="80"
+                          value={profile2.daily_rate || ''}
+                          onChange={(e) => setProfile2((p) => ({ ...p, daily_rate: e.target.value }))}
+                        />
+                      </div>
                     </div>
 
                     {LICENSE_REQUIRED.has(profile2.category) && (
