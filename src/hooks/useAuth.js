@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
-import { SERVICE_TYPE_LABELS } from '../utils/constants'
+import { SERVICE_TYPE_LABELS, LICENSE_REQUIRED } from '../utils/constants'
 
 export const useAuth = () => {
   const { user, setUser, setUserRole, clearUser } = useAppStore()
@@ -92,8 +92,6 @@ export const useAuth = () => {
     // without rolling back the role already saved above.
     const extended = {
       ...(service_type                != null && { service_type }),
-      ...(nursing_license             != null && { nursing_license }),
-      ...(nursing_license_country     != null && { nursing_license_country }),
       ...(cleaning_types?.length               && { cleaning_types }),
       ...(cleaning_description        != null && { cleaning_description }),
       ...(daily_rate                  != null && { daily_rate }),
@@ -110,14 +108,19 @@ export const useAuth = () => {
     //    "Os meus serviços" tab shows something immediately after registration.
     if (userData.role === 'professional' && service_type) {
       const title = SERVICE_TYPE_LABELS[service_type] || custom_profession || 'Serviço'
+      const needsLicense = LICENSE_REQUIRED.has(service_type)
       await supabase.from('provider_services').insert({
-        provider_id:   data.user.id,
-        category:      service_type,
+        provider_id:    data.user.id,
+        category:       service_type,
         title,
-        bio:           coreData.bio       || null,
+        bio:            coreData.bio        || null,
         price_per_hour: coreData.hourly_rate != null ? parseFloat(coreData.hourly_rate) : null,
-        daily_rate:    daily_rate          != null ? parseFloat(daily_rate)          : null,
-        is_available:  true,
+        daily_rate:     daily_rate           != null ? parseFloat(daily_rate)           : null,
+        is_available:   true,
+        ...(needsLicense && nursing_license && {
+          nursing_license,
+          nursing_license_country: nursing_license_country || 'PT',
+        }),
       })
       // Ignore insert errors — profile is already saved correctly.
     }
