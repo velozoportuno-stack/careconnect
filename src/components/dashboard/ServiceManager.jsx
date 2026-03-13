@@ -4,36 +4,40 @@ import { supabase } from '../../lib/supabase'
 import { useAppStore } from '../../store/appStore'
 import { SERVICE_TYPE_LABELS } from '../../utils/constants'
 
+// Pure helper — defined outside component so it's not re-created on every render
+const getServiceLabel = (type) =>
+  type ? (SERVICE_TYPE_LABELS[type] || type) : null
+
 export default function ServiceManager() {
   const { user } = useAppStore()
-  const [slots, setSlots]     = useState([null, null])
-  const [loading, setLoading] = useState(true)
+  const [slot1Type, setSlot1Type] = useState(null)   // from profiles
+  const [slot2Type, setSlot2Type] = useState(null)   // from provider_services slot=2
+  const [loading, setLoading]    = useState(true)
 
   useEffect(() => {
+    if (!user?.id) { setLoading(false); return }
+
     async function fetchSlots() {
-      // Fetch up to 2 services for this provider, ordered by slot then created_at
-      const { data, error } = await supabase
-        .from('provider_services')
-        .select('id, category, title, slot')
-        .eq('provider_id', user.id)
-        .order('slot',       { ascending: true, nullsFirst: false })
-        .order('created_at', { ascending: true })
-        .limit(2)
+      const [{ data: prof }, { data: svc2, error: e2 }] = await Promise.all([
+        // Perfil 1 — always from profiles table
+        supabase.from('profiles').select('service_type').eq('id', user.id).single(),
+        // Perfil 2 — provider_services slot 2
+        supabase
+          .from('provider_services')
+          .select('service_type')
+          .eq('professional_id', user.id)
+          .eq('slot', 2)
+          .maybeSingle(),
+      ])
 
-      if (error) {
-        console.error('[ServiceManager] fetch error:', error)
-        setLoading(false)
-        return
-      }
+      if (e2) console.error('[ServiceManager] slot 2 fetch error:', e2)
 
-      // Prefer rows by slot number, fall back to positional order
-      const s1 = data?.find((r) => r.slot === 1) ?? data?.[0] ?? null
-      const s2 = data?.find((r) => r.slot === 2) ?? data?.[1] ?? null
-      setSlots([s1, s2])
+      setSlot1Type(prof?.service_type || null)
+      setSlot2Type(svc2?.service_type || null)
       setLoading(false)
     }
     fetchSlots()
-  }, [])
+  }, [user?.id]) // re-fetch if user changes
 
   if (loading) return <div className="card animate-pulse h-16 mb-6" />
 
@@ -44,19 +48,18 @@ export default function ServiceManager() {
         <h2 className="text-lg font-bold text-gray-900">Os meus serviços</h2>
       </div>
       <div className="space-y-1">
-        {[1, 2].map((slotNum) => {
-          const svc   = slots[slotNum - 1]
-          const label = svc
-            ? (SERVICE_TYPE_LABELS[svc.category] || svc.title || 'Serviço')
-            : 'Não configurado'
-          return (
-            <p key={slotNum} className="text-sm text-gray-700">
-              <span className="font-semibold text-gray-900">Perfil {slotNum}</span>
-              {' — '}
-              <span className={svc ? 'text-gray-700' : 'text-gray-400 italic'}>{label}</span>
-            </p>
-          )
-        })}
+        {[
+          { num: 1, value: getServiceLabel(slot1Type) },
+          { num: 2, value: getServiceLabel(slot2Type) },
+        ].map(({ num, value }) => (
+          <p key={num} className="text-sm text-gray-700">
+            <span className="font-semibold text-gray-900">Perfil {num}</span>
+            {' — '}
+            <span className={value ? 'text-gray-700' : 'text-gray-400 italic'}>
+              {value ?? 'Não configurado'}
+            </span>
+          </p>
+        ))}
       </div>
     </div>
   )

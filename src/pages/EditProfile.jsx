@@ -54,9 +54,9 @@ export default function EditProfile() {
   const [availSaving, setAvailSaving]   = useState(false)
   const [availSuccess, setAvailSuccess] = useState(false)
 
-  // Profile 2 state — second service slot (provider only)
+  // Profile 2 state — slot 2 in provider_services (provider only)
   const [profile2, setProfile2] = useState({
-    category: '', price_per_hour: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
+    service_type: '', hourly_rate: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
   })
 
   useEffect(() => {
@@ -81,42 +81,29 @@ export default function EditProfile() {
       }
       setProfile(data)
       setCountry(data.country || 'PT')
-      // Load service slots after profile so slot data can override service fields
-      if (data.role === 'professional') loadSlots(data)
+      // Load Perfil 2 from provider_services (Perfil 1 data is in profiles already)
+      if (data.role === 'professional') loadSlots()
     }
     setLoading(false)
   }
 
-  async function loadSlots(fallbackProfile) {
-    const { data: services, error } = await supabase
+  async function loadSlots() {
+    // Perfil 1 comes from the profiles table (already loaded in fetchProfile).
+    // Only load Perfil 2 from provider_services slot=2.
+    const { data: s2, error } = await supabase
       .from('provider_services')
-      .select('*')
-      .eq('provider_id', user.id)
-      .order('slot',       { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true })
-      .limit(2)
-    if (error) { console.error('[EditProfile] loadSlots error:', error); return }
+      .select('service_type, hourly_rate, daily_rate, description, nursing_license, nursing_license_country')
+      .eq('professional_id', user.id)
+      .eq('slot', 2)
+      .maybeSingle()
 
-    console.log('[EditProfile] loadSlots raw:', services)
+    if (error) { console.error('[EditProfile] loadSlots slot 2 error:', error); return }
+    console.log('[EditProfile] loadSlots slot2 raw:', s2)
 
-    // Prefer slot-labelled rows; fall back to positional
-    const s1 = services?.find((s) => s.slot === 1) ?? services?.[0] ?? null
-    const s2 = services?.find((s) => s.slot === 2) ?? (services?.length > 1 ? services[1] : null)
-
-    if (s1) {
-      // Merge slot 1 service fields into profile state
-      setProfile((prev) => ({
-        ...(prev || fallbackProfile || {}),
-        service_type:    s1.category               || prev?.service_type    || '',
-        hourly_rate:     s1.price_per_hour          ?? prev?.hourly_rate,
-        daily_rate:      s1.daily_rate              ?? prev?.daily_rate,
-        nursing_license: s1.nursing_license         || prev?.nursing_license || '',
-      }))
-    }
     if (s2) {
       setProfile2({
-        category:                s2.category                || '',
-        price_per_hour:          s2.price_per_hour          ?? '',
+        service_type:            s2.service_type            || '',
+        hourly_rate:             s2.hourly_rate             ?? '',
         daily_rate:              s2.daily_rate              ?? '',
         description:             s2.description             || '',
         nursing_license:         s2.nursing_license         || '',
@@ -209,41 +196,33 @@ export default function EditProfile() {
     return { url: urlData.publicUrl, uploadError: null }
   }
 
-  // Explicit check→update/insert for a single slot — avoids upsert/constraint issues
-  async function saveSlot(slotNumber, fields) {
-    console.log(`[EditProfile] saveSlot ${slotNumber}:`, { user_id: user.id, fields })
+  // Save Perfil 2 to provider_services slot=2 — explicit SELECT then UPDATE or INSERT
+  async function saveSlot2(fields) {
+    console.log('[EditProfile] saveSlot2 fields:', { professional_id: user.id, ...fields })
 
-    // Try to find existing row — first by slot, then by position
-    const { data: allRows, error: fetchErr } = await supabase
+    const { data: existing, error: fetchErr } = await supabase
       .from('provider_services')
-      .select('id, slot')
-      .eq('provider_id', user.id)
-      .order('slot',       { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true })
-      .limit(2)
+      .select('id')
+      .eq('professional_id', user.id)
+      .eq('slot', 2)
+      .maybeSingle()
 
-    if (fetchErr) { console.error(`[EditProfile] slot ${slotNumber} fetch error:`, fetchErr); return }
-
-    const existing =
-      allRows?.find((r) => r.slot === slotNumber) ??
-      (slotNumber === 1 ? allRows?.[0] : allRows?.[1]) ??
-      null
-
-    console.log(`[EditProfile] slot ${slotNumber} existing row:`, existing)
+    if (fetchErr) { console.error('[EditProfile] slot 2 fetch error:', fetchErr); return }
+    console.log('[EditProfile] slot 2 existing row:', existing)
 
     if (existing) {
       const { error } = await supabase
         .from('provider_services')
-        .update({ slot: slotNumber, ...fields })
+        .update(fields)
         .eq('id', existing.id)
-      if (error) console.error(`[EditProfile] slot ${slotNumber} update error:`, error)
-      else console.log(`[EditProfile] slot ${slotNumber} updated OK`)
+      if (error) console.error('[EditProfile] slot 2 update error:', error)
+      else console.log('[EditProfile] slot 2 updated OK')
     } else {
       const { error } = await supabase
         .from('provider_services')
-        .insert({ provider_id: user.id, slot: slotNumber, is_available: true, ...fields })
-      if (error) console.error(`[EditProfile] slot ${slotNumber} insert error:`, error)
-      else console.log(`[EditProfile] slot ${slotNumber} inserted OK`)
+        .insert({ professional_id: user.id, slot: 2, is_available: true, ...fields })
+      if (error) console.error('[EditProfile] slot 2 insert error:', error)
+      else console.log('[EditProfile] slot 2 inserted OK')
     }
   }
 
@@ -323,27 +302,15 @@ export default function EditProfile() {
         }).eq('id', user.id)
       }
 
-      // Save both service slots to provider_services (professionals only)
-      if (isProvider && profile.service_type) {
-        const nl1 = LICENSE_REQUIRED.has(profile.service_type)
-        await saveSlot(1, {
-          category:                profile.service_type,
-          title:                   SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço',
-          price_per_hour:          profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
-          daily_rate:              profile.daily_rate  ? parseFloat(profile.daily_rate)  : null,
-          description:             profile.bio         || null,
-          nursing_license:         nl1 ? (profile.nursing_license?.trim() || null) : null,
-          nursing_license_country: nl1 ? (profile.country || 'PT')                  : null,
-        })
-      }
-      if (isProvider && profile2.category) {
-        const nl2 = LICENSE_REQUIRED.has(profile2.category)
-        await saveSlot(2, {
-          category:                profile2.category,
-          title:                   SERVICE_TYPE_LABELS[profile2.category] || 'Serviço',
-          price_per_hour:          profile2.price_per_hour ? parseFloat(profile2.price_per_hour) : null,
-          daily_rate:              profile2.daily_rate     ? parseFloat(profile2.daily_rate)     : null,
-          description:             profile2.description    || null,
+      // Perfil 1 is saved via profiles table update above (no provider_services row needed).
+      // Save Perfil 2 to provider_services slot=2 (professionals only, when service selected).
+      if (isProvider && profile2.service_type) {
+        const nl2 = LICENSE_REQUIRED.has(profile2.service_type)
+        await saveSlot2({
+          service_type:            profile2.service_type,
+          hourly_rate:             profile2.hourly_rate ? parseFloat(profile2.hourly_rate) : null,
+          daily_rate:              profile2.daily_rate  ? parseFloat(profile2.daily_rate)  : null,
+          description:             profile2.description || null,
           nursing_license:         nl2 ? (profile2.nursing_license?.trim() || null) : null,
           nursing_license_country: nl2 ? (profile2.nursing_license_country || 'PT')  : null,
         })
@@ -360,7 +327,7 @@ export default function EditProfile() {
         setProfile(fresh)
         setCountry(fresh.country || 'PT')
       }
-      if (isProvider) loadSlots(fresh)
+      if (isProvider) loadSlots()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -715,8 +682,8 @@ export default function EditProfile() {
                   <label className="input-label">Profissão / Tipo de serviço</label>
                   <select
                     className="input-field"
-                    value={profile2.category}
-                    onChange={(e) => setProfile2((p) => ({ ...p, category: e.target.value }))}
+                    value={profile2.service_type}
+                    onChange={(e) => setProfile2((p) => ({ ...p, service_type: e.target.value }))}
                   >
                     <option value="">Nenhum (não configurado)</option>
                     <optgroup label="── Saúde e Cuidado ──">
@@ -732,15 +699,15 @@ export default function EditProfile() {
                   </select>
                 </div>
 
-                {profile2.category && (
+                {profile2.service_type && (
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="input-label">⏱ Valor por hora (€)</label>
                         <input
                           type="number" step="0.50" min="1" className="input-field" placeholder="15.00"
-                          value={profile2.price_per_hour}
-                          onChange={(e) => setProfile2((p) => ({ ...p, price_per_hour: e.target.value }))}
+                          value={profile2.hourly_rate}
+                          onChange={(e) => setProfile2((p) => ({ ...p, hourly_rate: e.target.value }))}
                         />
                       </div>
                       <div>
@@ -753,11 +720,11 @@ export default function EditProfile() {
                       </div>
                     </div>
 
-                    {LICENSE_REQUIRED.has(profile2.category) && (
+                    {LICENSE_REQUIRED.has(profile2.service_type) && (
                       <div className="space-y-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
                         <div>
                           <label className="input-label">
-                            {getLicenseLabel(profile2.nursing_license_country || country, profile2.category)}
+                            {getLicenseLabel(profile2.nursing_license_country || country, profile2.service_type)}
                           </label>
                           <input
                             type="text" className="input-field"
