@@ -3,13 +3,14 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   Camera, Upload, Save, ChevronLeft, User, CreditCard,
   CheckCircle, AlertCircle, Loader2, MapPin, CalendarDays, Hash,
-
+  Phone, Trash2, Wallet,
 } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { COUNTRIES, CITIES } from '../utils/locations'
 import { CLEANING_TYPES, SERVICE_TYPES, SERVICE_TYPE_LABELS, LICENSE_REQUIRED, getLicenseLabel } from '../utils/constants'
+import { stripePromise } from '../lib/stripe'
 
 const DAYS_SCHEDULE = [
   { day: 1, label: 'Segunda-feira' },
@@ -58,6 +59,19 @@ export default function EditProfile() {
   const [profile2, setProfile2] = useState({
     service_type: '', hourly_rate: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
   })
+
+  // Payment state (clients)
+  const [cardName, setCardName]         = useState('')
+  const [cardSaved, setCardSaved]       = useState(false)
+  const [cardError, setCardError]       = useState(null)
+  const [paymentSaving, setPaymentSaving] = useState(false)
+  const [mbwaySaving, setMbwaySaving]   = useState(false)
+  const [pixSaving, setPixSaving]       = useState(false)
+
+  // Stripe card element refs
+  const cardContainerRef  = useRef(null)
+  const stripeCardRef     = useRef(null)
+  const stripeInstanceRef = useRef(null)
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
@@ -111,6 +125,46 @@ export default function EditProfile() {
       })
     }
   }
+
+  // Mount/unmount Stripe card element when payment tab is active
+  useEffect(() => {
+    if (tab !== 'payment') {
+      // Unmount card element when leaving payment tab
+      if (stripeCardRef.current) {
+        stripeCardRef.current.unmount()
+        stripeCardRef.current = null
+      }
+      return
+    }
+    if (!cardContainerRef.current || stripeCardRef.current) return
+
+    let active = true
+    stripePromise.then((stripe) => {
+      if (!active || !stripe || !cardContainerRef.current || stripeCardRef.current) return
+      stripeInstanceRef.current = stripe
+      const elements = stripe.elements()
+      const card = elements.create('card', {
+        style: {
+          base: {
+            fontSize: '16px',
+            color: '#374151',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            '::placeholder': { color: '#9ca3af' },
+          },
+          invalid: { color: '#ef4444' },
+        },
+      })
+      card.mount(cardContainerRef.current)
+      stripeCardRef.current = card
+    })
+    return () => {
+      active = false
+      if (stripeCardRef.current) {
+        stripeCardRef.current.unmount()
+        stripeCardRef.current = null
+      }
+    }
+  }, [tab])
 
   // Load availability when switching to that tab
   useEffect(() => {
@@ -226,6 +280,71 @@ export default function EditProfile() {
     }
   }
 
+  async function handleSaveCard() {
+    if (!stripeInstanceRef.current || !stripeCardRef.current) return
+    setPaymentSaving(true)
+    setCardError(null)
+    try {
+      const { paymentMethod, error: stripeErr } = await stripeInstanceRef.current.createPaymentMethod({
+        type: 'card',
+        card: stripeCardRef.current,
+        billing_details: { name: cardName || undefined },
+      })
+      if (stripeErr) throw new Error(stripeErr.message)
+
+      const { brand, last4, exp_month, exp_year } = paymentMethod.card
+      const brandLabel = brand.charAt(0).toUpperCase() + brand.slice(1)
+      const summary = `${brandLabel} **** ${last4} — ${String(exp_month).padStart(2, '0')}/${exp_year}`
+
+      const { error: dbErr } = await supabase.from('profiles').update({
+        default_payment_method_id: paymentMethod.id,
+        stripe_card_summary: summary,
+      }).eq('id', user.id)
+      if (dbErr) throw new Error(dbErr.message)
+
+      setProfile((p) => ({ ...p, default_payment_method_id: paymentMethod.id, stripe_card_summary: summary }))
+      setCardName('')
+      setCardSaved(true)
+      setTimeout(() => setCardSaved(false), 4000)
+    } catch (e) {
+      setCardError(e.message)
+    } finally {
+      setPaymentSaving(false)
+    }
+  }
+
+  async function handleDeleteCard() {
+    const { error } = await supabase.from('profiles').update({
+      default_payment_method_id: null,
+      stripe_card_summary: null,
+    }).eq('id', user.id)
+    if (!error) setProfile((p) => ({ ...p, default_payment_method_id: null, stripe_card_summary: null }))
+  }
+
+  async function handleSaveMbway() {
+    setMbwaySaving(true)
+    const { error } = await supabase.from('profiles').update({
+      mbway_phone: profile?.mbway_phone || null,
+    }).eq('id', user.id)
+    setMbwaySaving(false)
+    if (!error) {
+      setCardSaved(true)
+      setTimeout(() => setCardSaved(false), 3000)
+    }
+  }
+
+  async function handleSavePix() {
+    setPixSaving(true)
+    const { error } = await supabase.from('profiles').update({
+      pix_key: profile?.pix_key || null,
+    }).eq('id', user.id)
+    setPixSaving(false)
+    if (!error) {
+      setCardSaved(true)
+      setTimeout(() => setCardSaved(false), 3000)
+    }
+  }
+
   async function handleSave() {
     setSaving(true)
     setError(null)
@@ -246,6 +365,9 @@ export default function EditProfile() {
         country:      profile.country || 'PT',
         location:     profile.location,
         avatar_url:   avatarUrl,
+        phone:        profile.phone        ?? null,
+        tax_id:       profile.tax_id       ?? null,
+        tax_id_type:  profile.tax_id_type  ?? null,
         updated_at:   new Date().toISOString(),
       }
 
@@ -400,6 +522,7 @@ export default function EditProfile() {
             { key: 'profile',      label: 'Perfil',          Icon: User },
             { key: 'bank',         label: 'Conta Bancária',   Icon: CreditCard },
             ...(isProvider ? [{ key: 'availability', label: 'Disponibilidade', Icon: CalendarDays }] : []),
+            ...(!isProvider ? [{ key: 'payment', label: 'Pagamento', Icon: Wallet }] : []),
           ].map(({ key, label, Icon }) => (
             <button
               key={key}
@@ -461,6 +584,55 @@ export default function EditProfile() {
                   value={profile?.full_name || ''}
                   onChange={(e) => setProfile((p) => ({ ...p, full_name: e.target.value }))}
                 />
+              </div>
+
+              <div>
+                <label className="input-label">
+                  <span className="flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-gray-500" />
+                    Número de telefone
+                  </span>
+                </label>
+                <input
+                  type="tel"
+                  className="input-field"
+                  placeholder={profile?.country === 'BR' ? '+55 11 91234-5678' : '+351 912 345 678'}
+                  value={profile?.phone || ''}
+                  onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))}
+                />
+              </div>
+
+              {/* Tax ID — NIF/NIPC for PT, CPF/CNPJ for BR */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="input-label">
+                    {profile?.country === 'BR' ? 'Tipo de documento' : 'Tipo de NIF'}
+                  </label>
+                  <select
+                    className="input-field"
+                    value={profile?.tax_id_type || ''}
+                    onChange={(e) => setProfile((p) => ({ ...p, tax_id_type: e.target.value }))}
+                  >
+                    <option value="">Seleciona...</option>
+                    {(profile?.country === 'BR'
+                      ? [{ value: 'CPF', label: 'CPF' }, { value: 'CNPJ', label: 'CNPJ' }]
+                      : [{ value: 'NIF', label: 'NIF' }, { value: 'NIPC', label: 'NIPC' }]
+                    ).map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">
+                    {profile?.tax_id_type || (profile?.country === 'BR' ? 'CPF/CNPJ' : 'NIF/NIPC')}
+                  </label>
+                  <input
+                    className="input-field"
+                    placeholder={profile?.country === 'BR' ? '000.000.000-00' : '000000000'}
+                    value={profile?.tax_id || ''}
+                    onChange={(e) => setProfile((p) => ({ ...p, tax_id: e.target.value }))}
+                  />
+                </div>
               </div>
 
               {isProvider && (
@@ -865,6 +1037,194 @@ export default function EditProfile() {
           )
         })()}
 
+        {/* Payment methods tab (clients only) */}
+        {tab === 'payment' && (
+          <div className="space-y-5">
+
+            {/* ── Credit Card (Stripe) ── */}
+            <div className="card space-y-4">
+              <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                <CreditCard className="w-4 h-4 text-primary-600" />
+                <h3 className="font-bold text-gray-900">Cartão de crédito / débito</h3>
+              </div>
+
+              {profile?.stripe_card_summary ? (
+                /* Saved card display */
+                <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <CreditCard className="w-5 h-5 text-primary-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{profile.stripe_card_summary}</p>
+                      <p className="text-xs text-emerald-600 font-medium">✓ Cartão guardado</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDeleteCard}
+                    className="p-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Remover cartão"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                /* Card entry form */
+                <div className="space-y-3">
+                  <div>
+                    <label className="input-label">Nome no cartão</label>
+                    <input
+                      className="input-field"
+                      placeholder="Nome como aparece no cartão"
+                      value={cardName}
+                      onChange={(e) => setCardName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="input-label">Dados do cartão</label>
+                    <div
+                      ref={cardContainerRef}
+                      className="input-field py-3.5"
+                      style={{ minHeight: '46px' }}
+                    />
+                  </div>
+
+                  {cardError && (
+                    <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      {cardError}
+                    </div>
+                  )}
+                  {cardSaved && (
+                    <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      Cartão guardado com sucesso!
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveCard}
+                    disabled={paymentSaving}
+                    className="btn-primary w-full py-3 disabled:opacity-60"
+                  >
+                    {paymentSaving ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        A guardar cartão...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <CreditCard className="w-4 h-4" />
+                        Guardar Cartão
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* ── MB WAY (Portugal only) ── */}
+            {(profile?.country === 'PT' || !profile?.country) && (
+              <div className="card space-y-4">
+                <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                  <span className="text-base">📱</span>
+                  <h3 className="font-bold text-gray-900">MB WAY</h3>
+                  <span className="text-xs text-gray-400">— Portugal</span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Introduz o número de telemóvel associado à tua conta MB WAY para pagamentos rápidos.
+                </p>
+                <div>
+                  <label className="input-label">
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-gray-500" />
+                      Telemóvel MB WAY
+                    </span>
+                  </label>
+                  <input
+                    type="tel"
+                    className="input-field"
+                    placeholder="+351 912 345 678"
+                    value={profile?.mbway_phone || ''}
+                    onChange={(e) => setProfile((p) => ({ ...p, mbway_phone: e.target.value }))}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveMbway}
+                  disabled={mbwaySaving}
+                  className="btn-primary w-full py-3 disabled:opacity-60"
+                >
+                  {mbwaySaving ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      A guardar...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <Save className="w-4 h-4" />
+                      Guardar MB WAY
+                    </span>
+                  )}
+                </button>
+                {profile?.mbway_phone && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    MB WAY configurado: {profile.mbway_phone}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── PIX (Brasil only) ── */}
+            {profile?.country === 'BR' && (
+              <div className="card space-y-4">
+                <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                  <span className="text-base">⚡</span>
+                  <h3 className="font-bold text-gray-900">PIX</h3>
+                  <span className="text-xs text-gray-400">— Brasil</span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Introduz a tua chave PIX para receber pagamentos instantâneos.
+                </p>
+                <div>
+                  <label className="input-label">Chave PIX</label>
+                  <input
+                    className="input-field"
+                    placeholder="CPF, e-mail, telefone ou chave aleatória"
+                    value={profile?.pix_key || ''}
+                    onChange={(e) => setProfile((p) => ({ ...p, pix_key: e.target.value }))}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSavePix}
+                  disabled={pixSaving}
+                  className="btn-primary w-full py-3 disabled:opacity-60"
+                >
+                  {pixSaving ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      A guardar...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <Save className="w-4 h-4" />
+                      Guardar Chave PIX
+                    </span>
+                  )}
+                </button>
+                {profile?.pix_key && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    PIX configurado: {profile.pix_key}
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        )}
+
         {/* Availability tab — load when first opened if not already loaded */}
         {tab === 'availability' && (
           <div className="card space-y-4">
@@ -999,7 +1359,7 @@ export default function EditProfile() {
         )}
 
         {/* Save button — only for profile and bank tabs */}
-        {tab !== 'availability' && tab !== 'services' && <button
+        {tab !== 'availability' && tab !== 'services' && tab !== 'payment' && <button
           onClick={handleSave}
           disabled={saving}
           className="btn-primary w-full mt-5 py-4 text-base disabled:opacity-60"
