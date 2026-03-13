@@ -58,20 +58,15 @@ export default function EditProfile() {
   const [profile2, setProfile2] = useState({
     category: '', price_per_hour: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
   })
-  // Slot 1 license — loaded from provider_services (not profiles table)
-  const [slot1License, setSlot1License] = useState({ nursing_license: '', nursing_license_country: 'PT' })
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchProfile()
   }, [])
 
-  // Load availability and service slots once userRole resolves
+  // Load availability once userRole resolves
   useEffect(() => {
-    if (userRole === 'professional') {
-      loadAvailability()
-      loadSlots()
-    }
+    if (userRole === 'professional') loadAvailability()
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchProfile() {
@@ -86,28 +81,40 @@ export default function EditProfile() {
       }
       setProfile(data)
       setCountry(data.country || 'PT')
+      // Load service slots after profile so slot data can override service fields
+      if (data.role === 'professional') loadSlots(data)
     }
     setLoading(false)
   }
 
-  async function loadSlots() {
-    const [{ data: s1 }, { data: s2 }] = await Promise.all([
-      supabase.from('provider_services').select('nursing_license, nursing_license_country').eq('provider_id', user.id).eq('slot', 1).maybeSingle(),
-      supabase.from('provider_services').select('*').eq('provider_id', user.id).eq('slot', 2).maybeSingle(),
-    ])
+  async function loadSlots(fallbackProfile) {
+    const { data: services, error } = await supabase
+      .from('provider_services')
+      .select('*')
+      .eq('provider_id', user.id)
+      .order('slot', { ascending: true })
+    if (error) { console.error('[EditProfile] loadSlots error:', error); return }
+
+    const s1 = services?.find((s) => s.slot === 1)
+    const s2 = services?.find((s) => s.slot === 2)
+
     if (s1) {
-      setSlot1License({
-        nursing_license:         s1.nursing_license         || '',
-        nursing_license_country: s1.nursing_license_country || 'PT',
-      })
+      // Merge slot 1 service fields into profile state
+      setProfile((prev) => ({
+        ...(prev || fallbackProfile || {}),
+        service_type:    s1.category               || prev?.service_type    || '',
+        hourly_rate:     s1.price_per_hour          ?? prev?.hourly_rate,
+        daily_rate:      s1.daily_rate              ?? prev?.daily_rate,
+        nursing_license: s1.nursing_license         || prev?.nursing_license || '',
+      }))
     }
     if (s2) {
       setProfile2({
-        category:                s2.category               || '',
-        price_per_hour:          s2.price_per_hour         ?? '',
-        daily_rate:              s2.daily_rate             ?? '',
-        description:             s2.description            || '',
-        nursing_license:         s2.nursing_license        || '',
+        category:                s2.category                || '',
+        price_per_hour:          s2.price_per_hour          ?? '',
+        daily_rate:              s2.daily_rate              ?? '',
+        description:             s2.description             || '',
+        nursing_license:         s2.nursing_license         || '',
         nursing_license_country: s2.nursing_license_country || 'PT',
       })
     }
@@ -276,7 +283,8 @@ export default function EditProfile() {
       // Save both service slots to provider_services (professionals only)
       if (isProvider && profile.service_type) {
         const nl1 = LICENSE_REQUIRED.has(profile.service_type)
-        await supabase.from('provider_services').upsert({
+        console.log('[EditProfile] upserting slot 1:', { category: profile.service_type, slot: 1 })
+        const { error: e1 } = await supabase.from('provider_services').upsert({
           provider_id:             user.id,
           slot:                    1,
           category:                profile.service_type,
@@ -284,14 +292,16 @@ export default function EditProfile() {
           price_per_hour:          profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
           daily_rate:              profile.daily_rate  ? parseFloat(profile.daily_rate)  : null,
           description:             profile.bio         || null,
-          nursing_license:         nl1 ? (slot1License.nursing_license?.trim() || null) : null,
-          nursing_license_country: nl1 ? (slot1License.nursing_license_country || 'PT')  : null,
+          nursing_license:         nl1 ? (profile.nursing_license?.trim() || null) : null,
+          nursing_license_country: nl1 ? (profile.country || 'PT')                  : null,
           is_available:            true,
         }, { onConflict: 'provider_id,slot' })
+        if (e1) console.error('[EditProfile] slot 1 upsert error:', e1)
       }
       if (isProvider && profile2.category) {
         const nl2 = LICENSE_REQUIRED.has(profile2.category)
-        await supabase.from('provider_services').upsert({
+        console.log('[EditProfile] upserting slot 2:', { category: profile2.category, slot: 2 })
+        const { error: e2 } = await supabase.from('provider_services').upsert({
           provider_id:             user.id,
           slot:                    2,
           category:                profile2.category,
@@ -303,6 +313,7 @@ export default function EditProfile() {
           nursing_license_country: nl2 ? (profile2.nursing_license_country || 'PT')  : null,
           is_available:            true,
         }, { onConflict: 'provider_id,slot' })
+        if (e2) console.error('[EditProfile] slot 2 upsert error:', e2)
       }
 
       setProfile((p) => ({ ...p, avatar_url: avatarUrl }))
@@ -310,12 +321,13 @@ export default function EditProfile() {
       setSuccess(true)
       setTimeout(() => setSuccess(false), 4000)
 
-      // Reload profile from DB to confirm all persisted values (nursing_license, etc.)
+      // Reload both profile and slots from DB to confirm persisted values
       const { data: fresh } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (fresh) {
         setProfile(fresh)
         setCountry(fresh.country || 'PT')
       }
+      if (isProvider) loadSlots(fresh)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -510,8 +522,8 @@ export default function EditProfile() {
                       <input
                         className="input-field"
                         placeholder={profile?.country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
-                        value={slot1License.nursing_license}
-                        onChange={(e) => setSlot1License((s) => ({ ...s, nursing_license: e.target.value }))}
+                        value={profile?.nursing_license || ''}
+                        onChange={(e) => setProfile((p) => ({ ...p, nursing_license: e.target.value }))}
                       />
                     </div>
                   )}
