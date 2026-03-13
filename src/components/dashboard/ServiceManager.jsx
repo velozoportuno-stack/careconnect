@@ -6,16 +6,30 @@ import { SERVICE_TYPE_LABELS } from '../../utils/constants'
 
 export default function ServiceManager() {
   const { user } = useAppStore()
-  const [slots, setSlots]   = useState([null, null])
+  const [slots, setSlots]     = useState([null, null])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function fetchSlots() {
-      const [{ data: s1 }, { data: s2 }] = await Promise.all([
-        supabase.from('provider_services').select('category, title').eq('provider_id', user.id).eq('slot', 1).maybeSingle(),
-        supabase.from('provider_services').select('category, title').eq('provider_id', user.id).eq('slot', 2).maybeSingle(),
-      ])
-      setSlots([s1 || null, s2 || null])
+      // Fetch up to 2 services for this provider, ordered by slot then created_at
+      const { data, error } = await supabase
+        .from('provider_services')
+        .select('id, category, title, slot')
+        .eq('provider_id', user.id)
+        .order('slot',       { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: true })
+        .limit(2)
+
+      if (error) {
+        console.error('[ServiceManager] fetch error:', error)
+        setLoading(false)
+        return
+      }
+
+      // Prefer rows by slot number, fall back to positional order
+      const s1 = data?.find((r) => r.slot === 1) ?? data?.[0] ?? null
+      const s2 = data?.find((r) => r.slot === 2) ?? data?.[1] ?? null
+      setSlots([s1, s2])
       setLoading(false)
     }
     fetchSlots()
@@ -31,7 +45,7 @@ export default function ServiceManager() {
       </div>
       <div className="space-y-1">
         {[1, 2].map((slotNum) => {
-          const svc = slots[slotNum - 1]
+          const svc   = slots[slotNum - 1]
           const label = svc
             ? (SERVICE_TYPE_LABELS[svc.category] || svc.title || 'Serviço')
             : 'Não configurado'
