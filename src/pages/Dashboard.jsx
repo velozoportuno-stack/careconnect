@@ -16,6 +16,7 @@ import ProviderLocationShare from '../components/maps/ProviderLocationShare'
 import MedicationAlarms from '../components/dashboard/MedicationAlarms'
 import AddHoursModal from '../components/dashboard/AddHoursModal'
 import ServiceManager from '../components/dashboard/ServiceManager'
+import PatientManager from '../components/dashboard/PatientManager'
 
 /* ── Rating Modal ── */
 function RatingModal({ booking, reviewerRole, onClose, onSubmit, loading }) {
@@ -227,7 +228,10 @@ const ROLE_LABEL = {
 }
 
 const TRACKING_STATUSES      = new Set(['confirmed', 'in_progress', 'completed'])
-const CARE_ROLES             = new Set(['caregiver', 'nurse'])
+// CARE_ROLES: bookings with these service types show MedicationAlarms in the booking row
+const CARE_ROLES             = new Set(['caregiver', 'nurse', 'auxiliary_nurse'])
+// PATIENT_CARE_ROLES: professionals with these service types get the Pacientes tab
+const PATIENT_CARE_ROLES     = new Set(['caregiver', 'nurse', 'auxiliary_nurse'])
 const ACTIVE_STATUSES        = new Set(['confirmed', 'in_progress'])
 const CANCELLABLE_STATUSES   = new Set(['pending', 'confirmed'])
 
@@ -445,16 +449,21 @@ export default function Dashboard() {
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
+  // profServiceType: needed to decide whether to show the Pacientes tab
+  const [profServiceType, setProfServiceType] = useState(null)
+  // dashTab: 'bookings' | 'patients' — only active for care professionals
+  const [dashTab, setDashTab] = useState('bookings')
 
   useEffect(() => { fetchBookings() }, [])
 
   // Fetch professional's own average rating + country
   useEffect(() => {
     if (!isProvider || !user) return
-    supabase.from('profiles').select('average_rating, total_reviews, country').eq('id', user.id).single()
+    supabase.from('profiles').select('average_rating, total_reviews, country, service_type').eq('id', user.id).single()
       .then(({ data }) => {
         if (data?.total_reviews > 0) setProfRating(data.average_rating)
-        if (data?.country) setProfCountry(data.country)
+        if (data?.country)       setProfCountry(data.country)
+        if (data?.service_type)  setProfServiceType(data.service_type)
       })
   }, [isProvider, user])
 
@@ -844,8 +853,34 @@ export default function Dashboard() {
           )
         })()}
 
+        {/* ── Pacientes tab selector (care professionals only) ── */}
+        {isProvider && PATIENT_CARE_ROLES.has(profServiceType) && (
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
+            {[
+              { key: 'bookings', label: '📅 Agendamentos' },
+              { key: 'patients', label: '🏥 Pacientes'    },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setDashTab(key)}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all
+                            ${dashTab === key
+                              ? 'bg-white shadow-sm text-primary-600'
+                              : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── Patient Manager (care professionals — Pacientes tab) ── */}
+        {isProvider && PATIENT_CARE_ROLES.has(profServiceType) && dashTab === 'patients' && (
+          <PatientManager isProvider={true} />
+        )}
+
         {/* ── Bookings panel ── */}
-        <div className="card">
+        {(dashTab === 'bookings' || !PATIENT_CARE_ROLES.has(profServiceType)) && <div className="card">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-bold text-gray-900">Agendamentos</h2>
 
@@ -927,7 +962,14 @@ export default function Dashboard() {
               ))}
             </div>
           )}
-        </div>
+        </div>}
+
+        {/* ── Patient records (clients whose professional is a care type) ── */}
+        {!isProvider && bookings.some((b) => PATIENT_CARE_ROLES.has(b.provider?.service_type)) && (
+          <div className="mt-6">
+            <PatientManager isProvider={false} />
+          </div>
+        )}
       </main>
 
       {/* Add Hours Modal */}
