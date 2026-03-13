@@ -92,26 +92,22 @@ export default function Search() {
 
   async function fetchItems() {
     setLoading(true)
+
+    // Primary source: profiles table (role = 'professional').
+    // is_active NULL means not explicitly disabled — include those rows.
+    // NOTE: .neq('is_active', false) in PostgREST excludes NULL rows, so we use .or() instead.
     let q = supabase
-      .from('provider_services')
-      .select('id, category, title, description, bio, price_per_hour, provider_id, provider:provider_id(id, full_name, avatar_url, rating, average_rating, total_reviews, city, is_active, daily_rate, cleaning_types, professional_id_number)')
-      .eq('is_available', true)
-    if (category !== 'Todos') q = q.eq('category', category)
+      .from('profiles')
+      .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, service_type, professional_id_number')
+      .eq('role', 'professional')
+      .or('is_active.is.null,is_active.eq.true')
 
-    const { data, error } = await q.order('created_at', { ascending: false })
+    if (category !== 'Todos') q = q.eq('service_type', category)
 
-    if (!error && data?.length > 0) {
-      setItems(data.filter((s) => s.provider?.is_active !== false).map(normalizeService))
-    } else {
-      // Fallback to profiles — use neq(false) so null rows (most professionals) are included
-      let pq = supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, role, service_type, professional_id_number')
-        .eq('role', 'professional').neq('is_active', false)
-      if (category !== 'Todos') pq = pq.eq('service_type', category)
-      const { data: pd } = await pq.order('average_rating', { ascending: false, nullsFirst: false })
-      setItems((pd || []).map(normalizeProfile))
-    }
+    const { data, error } = await q.order('average_rating', { ascending: false, nullsFirst: false })
+
+    if (error) console.error('[Search] profiles query error:', error)
+    setItems((data || []).map(normalizeProfile))
     setLoading(false)
   }
 

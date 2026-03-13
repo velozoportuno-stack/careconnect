@@ -472,13 +472,13 @@ export default function Dashboard() {
     sunday.setDate(monday.getDate() + 6)
     sunday.setHours(23, 59, 59, 999)
 
+    // Fetch ALL completed bookings (no DB-side date filter) — completed_at may be
+    // null for older bookings; fall back to updated_at then scheduled_date in JS.
     supabase
       .from('bookings')
-      .select('completed_at, total_price')
+      .select('completed_at, updated_at, scheduled_date, total_price')
       .eq('provider_id', user.id)
       .eq('status', 'completed')
-      .gte('completed_at', monday.toISOString())
-      .lte('completed_at', sunday.toISOString())
       .then(({ data }) => {
         const days = Array.from({ length: 7 }, (_, i) => {
           const d = new Date(monday)
@@ -486,7 +486,11 @@ export default function Dashboard() {
           return { date: d, count: 0, total: 0 }
         })
         for (const b of (data || [])) {
-          const d = new Date(b.completed_at)
+          // completed_at → updated_at → scheduled_date
+          const dateStr = b.completed_at || b.updated_at || b.scheduled_date
+          if (!dateStr) continue
+          const d = new Date(dateStr)
+          if (d < monday || d > sunday) continue
           const idx = d.getDay() === 0 ? 6 : d.getDay() - 1 // Mon=0 … Sun=6
           days[idx].count++
           days[idx].total += parseFloat(b.total_price || 0)
