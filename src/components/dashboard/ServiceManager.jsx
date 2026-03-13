@@ -3,21 +3,35 @@ import { Plus, Pencil, Trash2, X, Save, Loader2, Briefcase, AlertTriangle, Check
 import { supabase } from '../../lib/supabase'
 import { useAppStore } from '../../store/appStore'
 import { formatCurrency } from '../../utils/formatters'
-import { SERVICE_TYPES, SERVICE_TYPE_LABELS } from '../../utils/constants'
+import {
+  SERVICE_TYPES, SERVICE_TYPE_LABELS,
+  LICENSE_REQUIRED, getLicenseLabel,
+} from '../../utils/constants'
 
 function categoryIcon(category) {
   return SERVICE_TYPES.find((s) => s.value === category)?.icon || '🔧'
 }
 
-function emptyService() {
-  return { category: '', title: '', description: '', bio: '', price_per_hour: '', daily_rate: '' }
+function emptyService(country = 'PT') {
+  return {
+    category: '', title: '', description: '', bio: '',
+    price_per_hour: '', daily_rate: '',
+    nursing_license: '', nursing_license_country: country,
+  }
 }
 
 /* ── Add / Edit modal ── */
-function ServiceModal({ service, onSave, onClose }) {
-  const [form, setForm]     = useState(service || emptyService())
+function ServiceModal({ service, profCountry, onSave, onClose }) {
+  const initCountry = service?.nursing_license_country || profCountry || 'PT'
+  const [form, setForm]     = useState(
+    service
+      ? { ...service, nursing_license: service.nursing_license || '', nursing_license_country: initCountry }
+      : emptyService(initCountry)
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState(null)
+
+  const needsLicense = LICENSE_REQUIRED.has(form.category)
 
   function handleCategoryChange(val) {
     const label = SERVICE_TYPE_LABELS[val] || ''
@@ -30,13 +44,19 @@ function ServiceModal({ service, onSave, onClose }) {
       setError('Preço por hora obrigatório.')
       return
     }
+    if (needsLicense && !form.nursing_license?.trim()) {
+      setError('Número de licença obrigatório para esta profissão.')
+      return
+    }
     setSaving(true)
     setError(null)
     await onSave({
       ...form,
-      price_per_hour: parseFloat(form.price_per_hour),
-      daily_rate:     form.daily_rate ? parseFloat(form.daily_rate) : null,
-      title:          form.title || SERVICE_TYPE_LABELS[form.category] || 'Serviço',
+      price_per_hour:          parseFloat(form.price_per_hour),
+      daily_rate:              form.daily_rate ? parseFloat(form.daily_rate) : null,
+      title:                   form.title || SERVICE_TYPE_LABELS[form.category] || 'Serviço',
+      nursing_license:         needsLicense ? (form.nursing_license?.trim() || null) : null,
+      nursing_license_country: needsLicense ? (form.nursing_license_country || 'PT')  : null,
     })
     setSaving(false)
   }
@@ -59,6 +79,7 @@ function ServiceModal({ service, onSave, onClose }) {
             <p className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>
           )}
 
+          {/* Profession */}
           <div>
             <label className="input-label">Profissão / Tipo de serviço *</label>
             <select
@@ -80,6 +101,7 @@ function ServiceModal({ service, onSave, onClose }) {
             </select>
           </div>
 
+          {/* Title */}
           <div>
             <label className="input-label">Título do serviço</label>
             <input
@@ -90,9 +112,10 @@ function ServiceModal({ service, onSave, onClose }) {
             />
           </div>
 
+          {/* Rates */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="input-label">⏱ Preço/hora (€) *</label>
+              <label className="input-label">⏱ Preço/hora *</label>
               <input
                 type="number" step="0.50" min="1" className="input-field" placeholder="15.00"
                 value={form.price_per_hour}
@@ -100,7 +123,7 @@ function ServiceModal({ service, onSave, onClose }) {
               />
             </div>
             <div>
-              <label className="input-label">📅 Preço/dia (€)</label>
+              <label className="input-label">📅 Preço/dia</label>
               <input
                 type="number" step="1" min="1" className="input-field" placeholder="80"
                 value={form.daily_rate}
@@ -109,6 +132,36 @@ function ServiceModal({ service, onSave, onClose }) {
             </div>
           </div>
 
+          {/* Nursing license — health professions only */}
+          {needsLicense && (
+            <div className="space-y-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+              <div>
+                <label className="input-label">
+                  {getLicenseLabel(form.nursing_license_country, form.category)} *
+                </label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder={form.nursing_license_country === 'BR' ? 'Ex: COREN-SP 123456' : 'Ex: 7-E-123456'}
+                  value={form.nursing_license}
+                  onChange={(e) => setForm((f) => ({ ...f, nursing_license: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="input-label">País da licença</label>
+                <select
+                  className="input-field"
+                  value={form.nursing_license_country}
+                  onChange={(e) => setForm((f) => ({ ...f, nursing_license_country: e.target.value }))}
+                >
+                  <option value="PT">🇵🇹 Portugal</option>
+                  <option value="BR">🇧🇷 Brasil</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Bio */}
           <div>
             <label className="input-label">Bio / Experiência</label>
             <textarea
@@ -119,6 +172,7 @@ function ServiceModal({ service, onSave, onClose }) {
             />
           </div>
 
+          {/* Description */}
           <div>
             <label className="input-label">Descrição do serviço</label>
             <textarea
@@ -205,17 +259,20 @@ function DeleteModal({ service, onCancel, onConfirm, loading }) {
 
 export default function ServiceManager() {
   const { user } = useAppStore()
-  const [services, setServices]       = useState([])
-  const [loading, setLoading]         = useState(true)
-  const [modalData, setModalData]     = useState(null)   // null | {} (new) | svc (edit)
-  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [services, setServices]           = useState([])
+  const [loading, setLoading]             = useState(true)
+  const [profCountry, setProfCountry]     = useState('PT')
+  const [modalData, setModalData]         = useState(null)
+  const [deleteTarget, setDeleteTarget]   = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
-  const [successMsg, setSuccessMsg]   = useState(null)
+  const [successMsg, setSuccessMsg]       = useState(null)
 
   useEffect(() => { fetchServices() }, [])
 
   async function fetchServices() {
     setLoading(true)
+
+    // Fetch existing services
     const { data, error } = await supabase
       .from('provider_services')
       .select('*')
@@ -232,20 +289,24 @@ export default function ServiceManager() {
     if (data?.length > 0) {
       setServices(data)
       setLoading(false)
+      // Still fetch country for the modal (non-blocking)
+      supabase.from('profiles').select('country').eq('id', user.id).single()
+        .then(({ data: p }) => { if (p?.country) setProfCountry(p.country) })
       return
     }
 
-    // No services yet — auto-create from profile data so the tab isn't empty
-    // after registration. daily_rate intentionally omitted (added in migration 005;
-    // user can set it via the edit modal).
+    // No services yet — read profile to auto-create the first row and get country
     const { data: profile } = await supabase
       .from('profiles')
-      .select('service_type, hourly_rate, bio')
+      .select('service_type, hourly_rate, daily_rate, bio, nursing_license, nursing_license_country, country')
       .eq('id', user.id)
       .single()
 
+    if (profile?.country) setProfCountry(profile.country)
+
     if (profile?.service_type) {
       const title = SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço'
+      const needsLicense = LICENSE_REQUIRED.has(profile.service_type)
       const { data: created, error: insertErr } = await supabase
         .from('provider_services')
         .insert({
@@ -255,6 +316,11 @@ export default function ServiceManager() {
           price_per_hour: profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
           bio:            profile.bio || null,
           is_available:   true,
+          // nursing_license requires migration 011; included only when relevant
+          ...(needsLicense && profile.nursing_license && {
+            nursing_license:         profile.nursing_license,
+            nursing_license_country: profile.nursing_license_country || 'PT',
+          }),
         })
         .select()
       if (insertErr) console.error('[ServiceManager] auto-create error:', insertErr)
@@ -267,9 +333,31 @@ export default function ServiceManager() {
 
   async function handleSave(form) {
     if (form.id) {
-      await supabase.from('provider_services').update(form).eq('id', form.id)
+      // Update existing service
+      await supabase.from('provider_services').update({
+        category:                form.category,
+        title:                   form.title,
+        price_per_hour:          form.price_per_hour,
+        daily_rate:              form.daily_rate,
+        bio:                     form.bio,
+        description:             form.description,
+        nursing_license:         form.nursing_license || null,
+        nursing_license_country: form.nursing_license_country || null,
+      }).eq('id', form.id)
     } else {
-      await supabase.from('provider_services').insert({ ...form, provider_id: user.id })
+      // Insert new service
+      await supabase.from('provider_services').insert({
+        provider_id:             user.id,
+        category:                form.category,
+        title:                   form.title,
+        price_per_hour:          form.price_per_hour,
+        daily_rate:              form.daily_rate || null,
+        bio:                     form.bio || null,
+        description:             form.description || null,
+        nursing_license:         form.nursing_license || null,
+        nursing_license_country: form.nursing_license_country || null,
+        is_available:            true,
+      })
     }
     setModalData(null)
     fetchServices()
@@ -300,7 +388,7 @@ export default function ServiceManager() {
           </h2>
         </div>
         <button
-          onClick={() => setModalData(emptyService())}
+          onClick={() => setModalData(emptyService(profCountry))}
           className="btn-primary text-sm py-2 px-4"
         >
           <Plus className="w-4 h-4" />
@@ -323,7 +411,7 @@ export default function ServiceManager() {
           <p className="text-gray-500 font-medium">Ainda não tens serviços registados.</p>
           <p className="text-sm text-gray-400 mt-1">Adiciona o teu primeiro serviço!</p>
           <button
-            onClick={() => setModalData(emptyService())}
+            onClick={() => setModalData(emptyService(profCountry))}
             className="btn-primary text-sm py-2 px-5 mt-4"
           >
             <Plus className="w-4 h-4" />
@@ -359,6 +447,11 @@ export default function ServiceManager() {
                       {formatCurrency(svc.daily_rate)}/dia
                     </span>
                   ) : null}
+                  {svc.nursing_license && (
+                    <span className="text-xs text-blue-600 font-medium">
+                      Lic: {svc.nursing_license}
+                    </span>
+                  )}
                   {svc.created_at && (
                     <span className="text-xs text-gray-400">
                       {new Date(svc.created_at).toLocaleDateString('pt-PT', {
@@ -397,6 +490,7 @@ export default function ServiceManager() {
       {modalData !== null && (
         <ServiceModal
           service={modalData.id ? modalData : null}
+          profCountry={profCountry}
           onSave={handleSave}
           onClose={() => setModalData(null)}
         />
