@@ -92,11 +92,16 @@ export default function EditProfile() {
       .from('provider_services')
       .select('*')
       .eq('provider_id', user.id)
-      .order('slot', { ascending: true })
+      .order('slot',       { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(2)
     if (error) { console.error('[EditProfile] loadSlots error:', error); return }
 
-    const s1 = services?.find((s) => s.slot === 1)
-    const s2 = services?.find((s) => s.slot === 2)
+    console.log('[EditProfile] loadSlots raw:', services)
+
+    // Prefer slot-labelled rows; fall back to positional
+    const s1 = services?.find((s) => s.slot === 1) ?? services?.[0] ?? null
+    const s2 = services?.find((s) => s.slot === 2) ?? (services?.length > 1 ? services[1] : null)
 
     if (s1) {
       // Merge slot 1 service fields into profile state
@@ -206,26 +211,39 @@ export default function EditProfile() {
 
   // Explicit check→update/insert for a single slot — avoids upsert/constraint issues
   async function saveSlot(slotNumber, fields) {
-    console.log(`[EditProfile] saving slot ${slotNumber}:`, fields)
-    const { data: existing, error: fetchErr } = await supabase
+    console.log(`[EditProfile] saveSlot ${slotNumber}:`, { user_id: user.id, fields })
+
+    // Try to find existing row — first by slot, then by position
+    const { data: allRows, error: fetchErr } = await supabase
       .from('provider_services')
-      .select('id')
+      .select('id, slot')
       .eq('provider_id', user.id)
-      .eq('slot', slotNumber)
-      .maybeSingle()
+      .order('slot',       { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(2)
+
     if (fetchErr) { console.error(`[EditProfile] slot ${slotNumber} fetch error:`, fetchErr); return }
+
+    const existing =
+      allRows?.find((r) => r.slot === slotNumber) ??
+      (slotNumber === 1 ? allRows?.[0] : allRows?.[1]) ??
+      null
+
+    console.log(`[EditProfile] slot ${slotNumber} existing row:`, existing)
 
     if (existing) {
       const { error } = await supabase
         .from('provider_services')
-        .update(fields)
+        .update({ slot: slotNumber, ...fields })
         .eq('id', existing.id)
       if (error) console.error(`[EditProfile] slot ${slotNumber} update error:`, error)
+      else console.log(`[EditProfile] slot ${slotNumber} updated OK`)
     } else {
       const { error } = await supabase
         .from('provider_services')
         .insert({ provider_id: user.id, slot: slotNumber, is_available: true, ...fields })
       if (error) console.error(`[EditProfile] slot ${slotNumber} insert error:`, error)
+      else console.log(`[EditProfile] slot ${slotNumber} inserted OK`)
     }
   }
 
