@@ -462,40 +462,46 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isProvider || !user) return
 
+    // Build an array of "YYYY-MM-DD" strings for Mon–Sun of the current week.
+    // We compare date strings (not Date objects) to avoid timezone drift.
     const now = new Date()
     const dow = now.getDay() // 0=Sun
     const diffToMon = dow === 0 ? -6 : 1 - dow
+    const toDateStr = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const monday = new Date(now)
     monday.setDate(now.getDate() + diffToMon)
-    monday.setHours(0, 0, 0, 0)
-    const sunday = new Date(monday)
-    sunday.setDate(monday.getDate() + 6)
-    sunday.setHours(23, 59, 59, 999)
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday)
+      d.setDate(monday.getDate() + i)
+      return toDateStr(d)
+    }) // ['2026-03-09', '2026-03-10', ..., '2026-03-15']
 
-    // Fetch ALL completed bookings (no DB-side date filter) — completed_at may be
-    // null for older bookings; fall back to updated_at then scheduled_date in JS.
+    // Fetch ALL completed bookings — completed_at may be null for older rows;
+    // fall back to updated_at then scheduled_date.
     supabase
       .from('bookings')
       .select('completed_at, updated_at, scheduled_date, total_price')
       .eq('provider_id', user.id)
       .eq('status', 'completed')
-      .then(({ data }) => {
-        const days = Array.from({ length: 7 }, (_, i) => {
-          const d = new Date(monday)
-          d.setDate(monday.getDate() + i)
-          return { date: d, count: 0, total: 0 }
-        })
+      .then(({ data, error }) => {
+        if (error) console.error('[Faturamento] query error:', error)
+        const days = weekDates.map((dateStr) => ({ dateStr, count: 0, total: 0 }))
         for (const b of (data || [])) {
-          // completed_at → updated_at → scheduled_date
-          const dateStr = b.completed_at || b.updated_at || b.scheduled_date
+          // Take first 10 chars of timestamp ("YYYY-MM-DD") or use scheduled_date directly
+          const dateStr =
+            (b.completed_at || b.updated_at)?.slice(0, 10) || b.scheduled_date || null
           if (!dateStr) continue
-          const d = new Date(dateStr)
-          if (d < monday || d > sunday) continue
-          const idx = d.getDay() === 0 ? 6 : d.getDay() - 1 // Mon=0 … Sun=6
+          const idx = weekDates.indexOf(dateStr)
+          if (idx === -1) continue
           days[idx].count++
           days[idx].total += parseFloat(b.total_price || 0)
         }
-        setWeeklyData(days)
+        setWeeklyData(days.map((d, i) => {
+          const date = new Date(monday)
+          date.setDate(monday.getDate() + i)
+          return { date, count: d.count, total: d.total }
+        }))
       })
   }, [isProvider, user])
 

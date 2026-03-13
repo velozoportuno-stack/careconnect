@@ -219,17 +219,19 @@ export default function ServiceManager() {
 
     if (profile?.service_type) {
       const title = SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço'
-      const { data: created } = await supabase
+      // Omit daily_rate — it was added in migration 005; if that migration hasn't
+      // run yet the insert would fail. The user can set daily_rate via the edit modal.
+      const { data: created, error: insertErr } = await supabase
         .from('provider_services')
         .insert({
-          provider_id:   user.id,
-          category:      profile.service_type,
+          provider_id:    user.id,
+          category:       profile.service_type,
           title,
           price_per_hour: profile.hourly_rate ? parseFloat(profile.hourly_rate) : null,
-          daily_rate:    profile.daily_rate   ? parseFloat(profile.daily_rate)  : null,
-          bio:           profile.bio || null,
-          is_available:  true,
+          bio:            profile.bio || null,
+          is_available:   true,
         })
+      if (insertErr) console.error('[ServiceManager] auto-create error:', insertErr)
         .select()
       setServices(created || [])
     } else {

@@ -93,14 +93,13 @@ export default function Search() {
   async function fetchItems() {
     setLoading(true)
 
-    // Primary source: profiles table (role = 'professional').
-    // is_active NULL means not explicitly disabled — include those rows.
-    // NOTE: .neq('is_active', false) in PostgREST excludes NULL rows, so we use .or() instead.
+    // Query profiles for all professionals.
+    // NOTE: is_active does NOT exist on the profiles table — only on provider_services.
+    // No is_active filter here; all role='professional' rows are included.
     let q = supabase
       .from('profiles')
       .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, service_type, professional_id_number')
       .eq('role', 'professional')
-      .or('is_active.is.null,is_active.eq.true')
 
     if (category !== 'Todos') q = q.eq('service_type', category)
 
