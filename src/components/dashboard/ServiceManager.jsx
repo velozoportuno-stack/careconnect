@@ -1,18 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, X, Save, ToggleLeft, ToggleRight, Loader2, Briefcase } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Save, Loader2, Briefcase, AlertTriangle, CheckCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAppStore } from '../../store/appStore'
 import { formatCurrency } from '../../utils/formatters'
 import { SERVICE_TYPES, SERVICE_TYPE_LABELS } from '../../utils/constants'
-
-// Badge colour by service group
-function badgeColor(category) {
-  const t = SERVICE_TYPES.find((s) => s.value === category)
-  if (!t) return 'badge-gray'
-  if (t.group === 'health') return 'badge-blue'
-  if (category === 'cleaner') return 'badge-teal'
-  return 'badge-gray'
-}
 
 function categoryIcon(category) {
   return SERVICE_TYPES.find((s) => s.value === category)?.icon || '🔧'
@@ -22,6 +13,7 @@ function emptyService() {
   return { category: '', title: '', description: '', bio: '', price_per_hour: '', daily_rate: '' }
 }
 
+/* ── Add / Edit modal ── */
 function ServiceModal({ service, onSave, onClose }) {
   const [form, setForm]     = useState(service || emptyService())
   const [saving, setSaving] = useState(false)
@@ -33,7 +25,7 @@ function ServiceModal({ service, onSave, onClose }) {
   }
 
   async function handleSave() {
-    if (!form.category)      { setError('Seleciona a profissão.'); return }
+    if (!form.category) { setError('Seleciona a profissão.'); return }
     if (!form.price_per_hour || parseFloat(form.price_per_hour) <= 0) {
       setError('Preço por hora obrigatório.')
       return
@@ -56,9 +48,7 @@ function ServiceModal({ service, onSave, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
 
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl">
-          <h2 className="font-bold text-gray-900">
-            {isEdit ? 'Editar Serviço' : 'Novo Serviço'}
-          </h2>
+          <h2 className="font-bold text-gray-900">{isEdit ? 'Editar Serviço' : 'Novo Serviço'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -66,12 +56,9 @@ function ServiceModal({ service, onSave, onClose }) {
 
         <div className="p-5 space-y-4">
           {error && (
-            <p className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-              {error}
-            </p>
+            <p className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>
           )}
 
-          {/* Profession / category — full dropdown matching registration */}
           <div>
             <label className="input-label">Profissão / Tipo de serviço *</label>
             <select
@@ -93,9 +80,8 @@ function ServiceModal({ service, onSave, onClose }) {
             </select>
           </div>
 
-          {/* Title */}
           <div>
-            <label className="input-label">Título do serviço *</label>
+            <label className="input-label">Título do serviço</label>
             <input
               className="input-field"
               placeholder={SERVICE_TYPE_LABELS[form.category] || 'Ex: Cuidados domiciliários'}
@@ -104,16 +90,11 @@ function ServiceModal({ service, onSave, onClose }) {
             />
           </div>
 
-          {/* Rates */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="input-label">⏱ Preço/hora (€) *</label>
               <input
-                type="number"
-                step="0.50"
-                min="1"
-                className="input-field"
-                placeholder="15.00"
+                type="number" step="0.50" min="1" className="input-field" placeholder="15.00"
                 value={form.price_per_hour}
                 onChange={(e) => setForm((f) => ({ ...f, price_per_hour: e.target.value }))}
               />
@@ -121,35 +102,27 @@ function ServiceModal({ service, onSave, onClose }) {
             <div>
               <label className="input-label">📅 Preço/dia (€)</label>
               <input
-                type="number"
-                step="1"
-                min="1"
-                className="input-field"
-                placeholder="80"
+                type="number" step="1" min="1" className="input-field" placeholder="80"
                 value={form.daily_rate}
                 onChange={(e) => setForm((f) => ({ ...f, daily_rate: e.target.value }))}
               />
             </div>
           </div>
 
-          {/* Bio */}
           <div>
             <label className="input-label">Bio / Experiência</label>
             <textarea
-              rows={3}
-              className="input-field resize-none text-sm"
+              rows={3} className="input-field resize-none text-sm"
               placeholder="Experiência, certificações, especialidade..."
               value={form.bio}
               onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
             />
           </div>
 
-          {/* Description */}
           <div>
             <label className="input-label">Descrição do serviço</label>
             <textarea
-              rows={2}
-              className="input-field resize-none text-sm"
+              rows={2} className="input-field resize-none text-sm"
               placeholder="O que inclui este serviço?"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -160,8 +133,7 @@ function ServiceModal({ service, onSave, onClose }) {
         <div className="flex gap-2 px-5 pb-5">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl text-sm
-                       hover:bg-gray-200 transition-colors"
+            className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl text-sm hover:bg-gray-200 transition-colors"
           >
             Cancelar
           </button>
@@ -172,8 +144,58 @@ function ServiceModal({ service, onSave, onClose }) {
           >
             {saving
               ? <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-              : <><Save className="w-4 h-4" /> {isEdit ? 'Guardar' : 'Criar serviço'}</>
-            }
+              : <><Save className="w-4 h-4" /> {isEdit ? 'Guardar' : 'Criar serviço'}</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Delete confirmation modal ── */
+function DeleteModal({ service, onCancel, onConfirm, loading }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-6 h-6 text-red-500" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Apagar serviço</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Tens a certeza que queres apagar este serviço?
+            </p>
+          </div>
+        </div>
+
+        {service && (
+          <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm">
+            <p className="font-semibold text-gray-800">
+              {categoryIcon(service.category)} {SERVICE_TYPE_LABELS[service.category] || service.title}
+            </p>
+            {service.price_per_hour && (
+              <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(service.price_per_hour)}/h</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
+          >
+            {loading
+              ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              : <><Trash2 className="w-4 h-4" /> Apagar</>}
           </button>
         </div>
       </div>
@@ -183,14 +205,17 @@ function ServiceModal({ service, onSave, onClose }) {
 
 export default function ServiceManager() {
   const { user } = useAppStore()
-  const [services, setServices]   = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [modalData, setModalData] = useState(null)
-  const [deleting, setDeleting]   = useState(null)
+  const [services, setServices]       = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [modalData, setModalData]     = useState(null)   // null | {} (new) | svc (edit)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [successMsg, setSuccessMsg]   = useState(null)
 
   useEffect(() => { fetchServices() }, [])
 
   async function fetchServices() {
+    setLoading(true)
     const { data, error } = await supabase
       .from('provider_services')
       .select('*')
@@ -210,17 +235,17 @@ export default function ServiceManager() {
       return
     }
 
-    // No services yet — check profile and auto-create the first row
+    // No services yet — auto-create from profile data so the tab isn't empty
+    // after registration. daily_rate intentionally omitted (added in migration 005;
+    // user can set it via the edit modal).
     const { data: profile } = await supabase
       .from('profiles')
-      .select('service_type, hourly_rate, daily_rate, bio')
+      .select('service_type, hourly_rate, bio')
       .eq('id', user.id)
       .single()
 
     if (profile?.service_type) {
       const title = SERVICE_TYPE_LABELS[profile.service_type] || 'Serviço'
-      // Omit daily_rate — it was added in migration 005; if that migration hasn't
-      // run yet the insert would fail. The user can set daily_rate via the edit modal.
       const { data: created, error: insertErr } = await supabase
         .from('provider_services')
         .insert({
@@ -231,8 +256,8 @@ export default function ServiceManager() {
           bio:            profile.bio || null,
           is_available:   true,
         })
-      if (insertErr) console.error('[ServiceManager] auto-create error:', insertErr)
         .select()
+      if (insertErr) console.error('[ServiceManager] auto-create error:', insertErr)
       setServices(created || [])
     } else {
       setServices([])
@@ -250,34 +275,29 @@ export default function ServiceManager() {
     fetchServices()
   }
 
-  async function toggleAvailability(svc) {
-    await supabase
-      .from('provider_services')
-      .update({ is_available: !svc.is_available })
-      .eq('id', svc.id)
-    setServices((prev) =>
-      prev.map((s) => s.id === svc.id ? { ...s, is_available: !s.is_available } : s)
-    )
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleteLoading(true)
+    await supabase.from('provider_services').delete().eq('id', deleteTarget.id)
+    setServices((prev) => prev.filter((s) => s.id !== deleteTarget.id))
+    setDeleteTarget(null)
+    setDeleteLoading(false)
+    setSuccessMsg('Serviço apagado com sucesso.')
+    setTimeout(() => setSuccessMsg(null), 3500)
   }
 
-  async function handleDelete(id) {
-    setDeleting(id)
-    await supabase.from('provider_services').delete().eq('id', id)
-    setServices((prev) => prev.filter((s) => s.id !== id))
-    setDeleting(null)
-  }
-
-  if (loading) return <div className="card animate-pulse h-32 mb-6" />
+  if (loading) return <div className="card animate-pulse h-28 mb-6" />
 
   return (
     <div className="card mb-6">
+      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           <Briefcase className="w-5 h-5 text-primary-600" />
-          <h2 className="text-lg font-bold text-gray-900">Os meus serviços</h2>
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-            {services.length}
-          </span>
+          <h2 className="text-lg font-bold text-gray-900">
+            Os meus serviços
+            <span className="ml-1.5 text-base font-normal text-gray-400">({services.length})</span>
+          </h2>
         </div>
         <button
           onClick={() => setModalData(emptyService())}
@@ -288,13 +308,20 @@ export default function ServiceManager() {
         </button>
       </div>
 
+      {/* Success toast */}
+      {successMsg && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium">
+          <CheckCheck className="w-4 h-4 flex-shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      {/* Empty state */}
       {services.length === 0 ? (
         <div className="text-center py-10">
           <Briefcase className="w-12 h-12 text-gray-200 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">Ainda não tens serviços registados.</p>
-          <p className="text-sm text-gray-400 mt-1">
-            Adiciona o teu primeiro serviço!
-          </p>
+          <p className="text-sm text-gray-400 mt-1">Adiciona o teu primeiro serviço!</p>
           <button
             onClick={() => setModalData(emptyService())}
             className="btn-primary text-sm py-2 px-5 mt-4"
@@ -304,85 +331,84 @@ export default function ServiceManager() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {services.map((svc) => (
-            <div
-              key={svc.id}
-              className={`border-2 rounded-2xl p-4 transition-all
-                          ${svc.is_available ? 'border-gray-100' : 'border-gray-100 opacity-60'}`}
-            >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">{categoryIcon(svc.category)}</span>
-                  <div>
-                    <p className="font-bold text-gray-900 text-sm leading-tight">{svc.title}</p>
-                    <span className={`${badgeColor(svc.category)} text-xs mt-0.5`}>
-                      {SERVICE_TYPE_LABELS[svc.category] || svc.category || 'Serviço'}
+        /* Ordered list */
+        <ol className="divide-y divide-gray-100">
+          {services.map((svc, i) => (
+            <li key={svc.id} className="flex items-center gap-3 py-3.5 first:pt-0 last:pb-0">
+              {/* Order number */}
+              <span className="w-6 text-center text-xs font-bold text-gray-300 flex-shrink-0">
+                {i + 1}
+              </span>
+
+              {/* Icon */}
+              <span className="text-xl flex-shrink-0">{categoryIcon(svc.category)}</span>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 leading-tight">
+                  {SERVICE_TYPE_LABELS[svc.category] || svc.title || 'Serviço'}
+                </p>
+                <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
+                  {svc.price_per_hour ? (
+                    <span className="text-xs font-medium text-primary-600">
+                      {formatCurrency(svc.price_per_hour)}/h
                     </span>
-                  </div>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-base font-extrabold text-primary-600">
-                    {formatCurrency(svc.price_per_hour)}<span className="text-xs text-gray-400 font-normal">/h</span>
-                  </p>
-                  {svc.daily_rate && (
-                    <p className="text-sm font-semibold text-primary-500">
-                      {formatCurrency(svc.daily_rate)}<span className="text-xs text-gray-400 font-normal">/dia</span>
-                    </p>
+                  ) : null}
+                  {svc.daily_rate ? (
+                    <span className="text-xs font-medium text-primary-500">
+                      {formatCurrency(svc.daily_rate)}/dia
+                    </span>
+                  ) : null}
+                  {svc.created_at && (
+                    <span className="text-xs text-gray-400">
+                      {new Date(svc.created_at).toLocaleDateString('pt-PT', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                      })}
+                    </span>
                   )}
                 </div>
               </div>
 
-              {svc.bio && (
-                <p className="text-xs text-gray-500 line-clamp-2 mb-3">{svc.bio}</p>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+              {/* Actions */}
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
-                  onClick={() => toggleAvailability(svc)}
-                  className={`flex items-center gap-1.5 text-xs font-semibold transition-colors
-                              ${svc.is_available ? 'text-emerald-600' : 'text-gray-400'}`}
+                  onClick={() => setModalData(svc)}
+                  title="Editar"
+                  className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500
+                             flex items-center justify-center transition-colors"
                 >
-                  {svc.is_available
-                    ? <ToggleRight className="w-5 h-5" />
-                    : <ToggleLeft className="w-5 h-5" />
-                  }
-                  {svc.is_available ? 'Disponível' : 'Indisponível'}
+                  <Pencil className="w-3.5 h-3.5" />
                 </button>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setModalData(svc)}
-                    className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600
-                               flex items-center justify-center transition-colors"
-                    title="Editar"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(svc.id)}
-                    disabled={deleting === svc.id}
-                    className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-500
-                               flex items-center justify-center transition-colors disabled:opacity-50"
-                    title="Eliminar"
-                  >
-                    {deleting === svc.id
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Trash2 className="w-3.5 h-3.5" />
-                    }
-                  </button>
-                </div>
+                <button
+                  onClick={() => setDeleteTarget(svc)}
+                  title="Apagar"
+                  className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-500
+                             flex items-center justify-center transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ol>
       )}
 
+      {/* Add / Edit modal */}
       {modalData !== null && (
         <ServiceModal
           service={modalData.id ? modalData : null}
           onSave={handleSave}
           onClose={() => setModalData(null)}
+        />
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <DeleteModal
+          service={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
+          loading={deleteLoading}
         />
       )}
     </div>
