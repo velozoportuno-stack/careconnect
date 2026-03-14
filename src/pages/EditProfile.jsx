@@ -258,17 +258,21 @@ export default function EditProfile() {
     if (fetchErr) { console.error('[EditProfile] slot 2 fetch error:', fetchErr); return }
     console.log('[EditProfile] slot 2 existing row:', existing)
 
+    // Whitelist — only provider_services columns (never leak profiles columns here)
+    const allowed = ['service_type', 'hourly_rate', 'daily_rate', 'description', 'nursing_license', 'nursing_license_country']
+    const safeFields = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)))
+
     if (existing) {
       const { error } = await supabase
         .from('provider_services')
-        .update(fields)
+        .update(safeFields)
         .eq('id', existing.id)
       if (error) console.error('[EditProfile] slot 2 update error:', error)
       else console.log('[EditProfile] slot 2 updated OK')
     } else {
       const { error } = await supabase
         .from('provider_services')
-        .insert({ professional_id: user.id, slot: 2, is_available: true, ...fields })
+        .insert({ professional_id: user.id, slot: 2, ...safeFields })
       if (error) console.error('[EditProfile] slot 2 insert error:', error)
       else console.log('[EditProfile] slot 2 inserted OK')
     }
@@ -354,7 +358,7 @@ export default function EditProfile() {
         setError(`Foto não guardada: ${uploadError}`)
       }
 
-      // Base fields that always exist in the profiles table
+      // Base fields — columns that have always existed in profiles (no migration guard needed)
       const baseUpdate = {
         full_name:    profile.full_name,
         bio:          profile.bio,
@@ -364,9 +368,6 @@ export default function EditProfile() {
         country:      profile.country || 'PT',
         location:     profile.location,
         avatar_url:   avatarUrl,
-        phone:        profile.phone        ?? null,
-        tax_id:       profile.tax_id       ?? null,
-        tax_id_type:  profile.tax_id_type  ?? null,
         updated_at:   new Date().toISOString(),
       }
 
@@ -376,51 +377,56 @@ export default function EditProfile() {
         profile.country === 'BR' ? 'pix'  :
         profile.bank_account_type ?? null
 
-      // Extended fields — added by migrations; may not exist in older DB schemas
-      const extendedUpdate = {
-        bank_account_type:       bankType,
-        bank_account_value:      profile.bank_account_value   ?? null,
-        bank_account_name:       profile.bank_account_name    ?? null,
-        address:                 profile.address              ?? null,
-        daily_rate:              profile.daily_rate ? parseFloat(profile.daily_rate) : null,
-        cleaning_types:          profile.cleaning_types       ?? null,
-        cleaning_description:    profile.cleaning_description ?? null,
-        nursing_license:         profile.nursing_license      ?? null,
-        nursing_license_country: profile.country              ?? 'PT',
-        custom_profession:       profile.custom_profession    ?? null,
-      }
+      // Extended fields — added by migrations; grouped so a missing column only fails its group
+      const extendedGroups = [
+        // nursing_license — from nursing_license.sql migration (saved independently so it never gets
+        // blocked by a different migration group failing)
+        {
+          nursing_license:         profile.nursing_license      ?? null,
+          nursing_license_country: profile.country              ?? 'PT',
+        },
+        // bank account — from early migrations
+        {
+          bank_account_type:  bankType,
+          bank_account_value: profile.bank_account_value ?? null,
+          bank_account_name:  profile.bank_account_name  ?? null,
+        },
+        // service extras — cleaning, custom profession, daily rate
+        {
+          daily_rate:           profile.daily_rate ? parseFloat(profile.daily_rate) : null,
+          cleaning_types:       profile.cleaning_types       ?? null,
+          cleaning_description: profile.cleaning_description ?? null,
+          custom_profession:    profile.custom_profession    ?? null,
+        },
+        // contact + tax ID — from migrations 010 + 015; may not exist on older DB instances
+        {
+          phone:       profile.phone      ?? null,
+          tax_id:      profile.tax_id     ?? null,
+          tax_id_type: profile.tax_id_type ?? null,
+        },
+      ]
 
       console.log('[Profile] saving — nursing_license:', profile.nursing_license, '| service_type:', profile.service_type, '| avatar_url:', avatarUrl)
 
+      // Try to save everything in one shot; if it fails, fall back to group-by-group saves
       const { error: upErr } = await supabase
         .from('profiles')
-        .update({ ...baseUpdate, ...extendedUpdate })
+        .update({ ...baseUpdate, ...Object.assign({}, ...extendedGroups) })
         .eq('id', user.id)
       console.log('[Profile] update result:', { upErr })
 
       if (upErr) {
-        // Extended columns may not exist yet — save base fields first (must succeed)
+        // Base fields must succeed — they all exist in the original schema
         const { error: baseErr } = await supabase
           .from('profiles')
           .update(baseUpdate)
           .eq('id', user.id)
         if (baseErr) throw new Error(baseErr.message)
 
-        // Retry each extended group independently — errors are non-fatal (migration may not be run)
-        await supabase.from('profiles').update({
-          bank_account_type:  bankType,
-          bank_account_value: profile.bank_account_value ?? null,
-          bank_account_name:  profile.bank_account_name  ?? null,
-        }).eq('id', user.id)
-
-        await supabase.from('profiles').update({
-          daily_rate:              profile.daily_rate ? parseFloat(profile.daily_rate) : null,
-          cleaning_types:          profile.cleaning_types       ?? null,
-          cleaning_description:    profile.cleaning_description ?? null,
-          nursing_license:         profile.nursing_license      ?? null,
-          nursing_license_country: profile.country              ?? 'PT',
-          custom_profession:       profile.custom_profession    ?? null,
-        }).eq('id', user.id)
+        // Save each extended group independently — errors are non-fatal
+        for (const group of extendedGroups) {
+          await supabase.from('profiles').update(group).eq('id', user.id)
+        }
       }
 
       // Perfil 1 is saved via profiles table update above (no provider_services row needed).
