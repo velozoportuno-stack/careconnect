@@ -91,6 +91,8 @@ export default function Search() {
   const [category, setCategory]   = useState(() => searchParams.get('category') || 'Todos')
 
   // Load client's own country on mount and lock the default filter to it
+  const [countryReady, setCountryReady] = useState(false)
+
   useEffect(() => {
     if (!user?.id) return
     supabase.from('profiles').select('country').eq('id', user.id).single()
@@ -99,10 +101,15 @@ export default function Search() {
           setCountry(data.country)
           setCity('')
         }
+        setCountryReady(true)
       })
   }, [user?.id])
 
-  useEffect(() => { fetchItems() }, [category, country]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Only fetch once client country is determined — avoids a false PT-default fetch for BR clients
+  useEffect(() => {
+    if (!countryReady) return
+    fetchItems()
+  }, [category, country, countryReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchItems() {
     setLoading(true)
@@ -114,13 +121,15 @@ export default function Search() {
       .from('profiles')
       .select('id, full_name, avatar_url, bio, city, country, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, service_type, professional_id_number')
       .eq('role', 'professional')
-      .eq('country', country)  // show only professionals from the same country as the client
+      // Include professionals with matching country OR null country (registered before the column existed)
+      .or(`country.eq.${country},country.is.null`)
 
     if (category !== 'Todos') q = q.eq('service_type', category)
 
     const { data, error } = await q.order('average_rating', { ascending: false, nullsFirst: false })
 
     if (error) console.error('[Search] profiles query error:', error)
+    console.log(`[Search] country=${country} category=${category} → ${data?.length ?? 0} professionals`, data)
     setItems((data || []).map(normalizeProfile))
     setLoading(false)
   }
