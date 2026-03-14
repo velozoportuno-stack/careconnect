@@ -61,17 +61,18 @@ export default function EditProfile() {
   })
 
   // Payment state (clients)
-  const [cardName, setCardName]         = useState('')
-  const [cardSaved, setCardSaved]       = useState(false)
-  const [cardError, setCardError]       = useState(null)
-  const [paymentSaving, setPaymentSaving] = useState(false)
-  const [mbwaySaving, setMbwaySaving]   = useState(false)
-  const [pixSaving, setPixSaving]       = useState(false)
+  // paymentSavingField: null | 'card' | 'mbway' | 'pix' — which field is currently saving
+  // savedField:         null | 'card' | 'mbway' | 'pix' — which field just succeeded
+  const [cardName, setCardName]                     = useState('')
+  const [cardError, setCardError]                   = useState(null)
+  const [paymentSavingField, setPaymentSavingField] = useState(null)
+  const [savedField, setSavedField]                 = useState(null)
 
   // Stripe card element refs
   const cardContainerRef  = useRef(null)
   const stripeCardRef     = useRef(null)
   const stripeInstanceRef = useRef(null)
+  const elementsRef       = useRef(null)
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
@@ -126,24 +127,17 @@ export default function EditProfile() {
     }
   }
 
-  // Mount/unmount Stripe card element when payment tab is active
+  // Mount Stripe card element when payment tab is active; cleanup unmounts it
   useEffect(() => {
-    if (tab !== 'payment') {
-      // Unmount card element when leaving payment tab
-      if (stripeCardRef.current) {
-        stripeCardRef.current.unmount()
-        stripeCardRef.current = null
-      }
-      return
-    }
+    if (tab !== 'payment') return
     if (!cardContainerRef.current || stripeCardRef.current) return
 
     let active = true
     stripePromise.then((stripe) => {
       if (!active || !stripe || !cardContainerRef.current || stripeCardRef.current) return
       stripeInstanceRef.current = stripe
-      const elements = stripe.elements()
-      const card = elements.create('card', {
+      if (!elementsRef.current) elementsRef.current = stripe.elements()
+      const card = elementsRef.current.create('card', {
         style: {
           base: {
             fontSize: '16px',
@@ -282,9 +276,10 @@ export default function EditProfile() {
 
   async function handleSaveCard() {
     if (!stripeInstanceRef.current || !stripeCardRef.current) return
-    setPaymentSaving(true)
+    setPaymentSavingField('card')
     setCardError(null)
     try {
+      // Tokenise card client-side (publishable key only)
       const { paymentMethod, error: stripeErr } = await stripeInstanceRef.current.createPaymentMethod({
         type: 'card',
         card: stripeCardRef.current,
@@ -292,24 +287,36 @@ export default function EditProfile() {
       })
       if (stripeErr) throw new Error(stripeErr.message)
 
-      const { brand, last4, exp_month, exp_year } = paymentMethod.card
-      const brandLabel = brand.charAt(0).toUpperCase() + brand.slice(1)
-      const summary = `${brandLabel} **** ${last4} — ${String(exp_month).padStart(2, '0')}/${exp_year}`
+      // Server-side: create Stripe customer if needed, attach method, persist IDs
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/save-payment-method`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ payment_method_id: paymentMethod.id, cardholder_name: cardName }),
+        }
+      )
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Erro ao guardar cartão')
 
-      const { error: dbErr } = await supabase.from('profiles').update({
-        default_payment_method_id: paymentMethod.id,
-        stripe_card_summary: summary,
-      }).eq('id', user.id)
-      if (dbErr) throw new Error(dbErr.message)
-
-      setProfile((p) => ({ ...p, default_payment_method_id: paymentMethod.id, stripe_card_summary: summary }))
+      setProfile((p) => ({
+        ...p,
+        stripe_customer_id:        result.stripe_customer_id,
+        default_payment_method_id: result.default_payment_method_id,
+        stripe_card_summary:       result.stripe_card_summary,
+      }))
       setCardName('')
-      setCardSaved(true)
-      setTimeout(() => setCardSaved(false), 4000)
+      setSavedField('card')
+      setTimeout(() => setSavedField(null), 4000)
     } catch (e) {
       setCardError(e.message)
     } finally {
-      setPaymentSaving(false)
+      setPaymentSavingField(null)
     }
   }
 
@@ -321,27 +328,19 @@ export default function EditProfile() {
     if (!error) setProfile((p) => ({ ...p, default_payment_method_id: null, stripe_card_summary: null }))
   }
 
-  async function handleSaveMbway() {
-    setMbwaySaving(true)
-    const { error } = await supabase.from('profiles').update({
-      mbway_phone: profile?.mbway_phone || null,
-    }).eq('id', user.id)
-    setMbwaySaving(false)
-    if (!error) {
-      setCardSaved(true)
-      setTimeout(() => setCardSaved(false), 3000)
-    }
-  }
-
-  async function handleSavePix() {
-    setPixSaving(true)
-    const { error } = await supabase.from('profiles').update({
-      pix_key: profile?.pix_key || null,
-    }).eq('id', user.id)
-    setPixSaving(false)
-    if (!error) {
-      setCardSaved(true)
-      setTimeout(() => setCardSaved(false), 3000)
+  // Generic helper for MB WAY / PIX — saves one profile field and shows success feedback
+  async function handleSavePaymentField(field, value, fieldKey) {
+    setPaymentSavingField(fieldKey)
+    setCardError(null)
+    try {
+      const { error } = await supabase.from('profiles').update({ [field]: value || null }).eq('id', user.id)
+      if (error) throw new Error(error.message)
+      setSavedField(fieldKey)
+      setTimeout(() => setSavedField(null), 3000)
+    } catch (e) {
+      setCardError(e.message)
+    } finally {
+      setPaymentSavingField(null)
     }
   }
 
@@ -520,9 +519,12 @@ export default function EditProfile() {
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
           {[
             { key: 'profile',      label: 'Perfil',          Icon: User },
-            { key: 'bank',         label: 'Conta Bancária',   Icon: CreditCard },
-            ...(isProvider ? [{ key: 'availability', label: 'Disponibilidade', Icon: CalendarDays }] : []),
-            ...(!isProvider ? [{ key: 'payment', label: 'Pagamento', Icon: Wallet }] : []),
+            ...(isProvider ? [
+              { key: 'bank',         label: 'Conta Bancária',   Icon: CreditCard },
+              { key: 'availability', label: 'Disponibilidade',  Icon: CalendarDays },
+            ] : [
+              { key: 'payment', label: 'Pagamento', Icon: Wallet },
+            ]),
           ].map(({ key, label, Icon }) => (
             <button
               key={key}
@@ -935,8 +937,8 @@ export default function EditProfile() {
           </div>
         )}
 
-        {/* Bank account tab */}
-        {tab === 'bank' && (() => {
+        {/* Bank account tab — professionals only */}
+        {tab === 'bank' && isProvider && (() => {
           // Derive bank type from country — PT=IBAN, BR=PIX, others=user choice
           const countryBankType =
             profile?.country === 'PT' ? 'iban' :
@@ -1094,7 +1096,7 @@ export default function EditProfile() {
                       {cardError}
                     </div>
                   )}
-                  {cardSaved && (
+                  {savedField === 'card' && (
                     <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
                       <CheckCircle className="w-4 h-4 flex-shrink-0" />
                       Cartão guardado com sucesso!
@@ -1103,10 +1105,10 @@ export default function EditProfile() {
                   <button
                     type="button"
                     onClick={handleSaveCard}
-                    disabled={paymentSaving}
+                    disabled={paymentSavingField === 'card'}
                     className="btn-primary w-full py-3 disabled:opacity-60"
                   >
-                    {paymentSaving ? (
+                    {paymentSavingField === 'card' ? (
                       <span className="flex items-center justify-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin" />
                         A guardar cartão...
@@ -1150,11 +1152,11 @@ export default function EditProfile() {
                 </div>
                 <button
                   type="button"
-                  onClick={handleSaveMbway}
-                  disabled={mbwaySaving}
+                  onClick={() => handleSavePaymentField('mbway_phone', profile?.mbway_phone, 'mbway')}
+                  disabled={paymentSavingField === 'mbway'}
                   className="btn-primary w-full py-3 disabled:opacity-60"
                 >
-                  {mbwaySaving ? (
+                  {paymentSavingField === 'mbway' ? (
                     <span className="flex items-center justify-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       A guardar...
@@ -1166,7 +1168,13 @@ export default function EditProfile() {
                     </span>
                   )}
                 </button>
-                {profile?.mbway_phone && (
+                {savedField === 'mbway' && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    MB WAY guardado com sucesso!
+                  </div>
+                )}
+                {profile?.mbway_phone && savedField !== 'mbway' && (
                   <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
                     <CheckCircle className="w-4 h-4 flex-shrink-0" />
                     MB WAY configurado: {profile.mbway_phone}
@@ -1197,11 +1205,11 @@ export default function EditProfile() {
                 </div>
                 <button
                   type="button"
-                  onClick={handleSavePix}
-                  disabled={pixSaving}
+                  onClick={() => handleSavePaymentField('pix_key', profile?.pix_key, 'pix')}
+                  disabled={paymentSavingField === 'pix'}
                   className="btn-primary w-full py-3 disabled:opacity-60"
                 >
-                  {pixSaving ? (
+                  {paymentSavingField === 'pix' ? (
                     <span className="flex items-center justify-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       A guardar...
@@ -1213,7 +1221,13 @@ export default function EditProfile() {
                     </span>
                   )}
                 </button>
-                {profile?.pix_key && (
+                {savedField === 'pix' && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    Chave PIX guardada com sucesso!
+                  </div>
+                )}
+                {profile?.pix_key && savedField !== 'pix' && (
                   <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
                     <CheckCircle className="w-4 h-4 flex-shrink-0" />
                     PIX configurado: {profile.pix_key}
