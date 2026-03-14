@@ -437,7 +437,7 @@ export default function EditProfile() {
           daily_rate:              profile2.daily_rate  ? parseFloat(profile2.daily_rate)  : null,
           description:             profile2.description || null,
           nursing_license:         nl2 ? (profile2.nursing_license?.trim() || null) : null,
-          nursing_license_country: nl2 ? (profile2.nursing_license_country || 'PT')  : null,
+          nursing_license_country: nl2 ? (profile?.country || 'PT')                  : null,
         })
       }
 
@@ -904,14 +904,10 @@ export default function EditProfile() {
                         </div>
                         <div>
                           <label className="input-label">País da licença</label>
-                          <select
-                            className="input-field"
-                            value={profile2.nursing_license_country}
-                            onChange={(e) => setProfile2((p) => ({ ...p, nursing_license_country: e.target.value }))}
-                          >
-                            <option value="PT">🇵🇹 Portugal</option>
-                            <option value="BR">🇧🇷 Brasil</option>
-                          </select>
+                          <div className="input-field bg-gray-50 text-gray-600 flex items-center gap-2 cursor-default select-none">
+                            {profile?.country === 'BR' ? '🇧🇷 Brasil' : '🇵🇹 Portugal'}
+                            <span className="ml-auto text-xs text-gray-400">Não editável</span>
+                          </div>
                         </div>
                       </div>
                     )}
