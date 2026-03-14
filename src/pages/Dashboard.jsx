@@ -723,10 +723,20 @@ export default function Dashboard() {
               </Link>
             )}
             {!isProvider && (
-              <Link to="/search" className="btn-primary text-sm">
-                <Plus className="w-4 h-4" />
-                Novo agendamento
-              </Link>
+              <>
+                <Link
+                  to="/edit-profile"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl
+                             text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <Settings className="w-4 h-4" />
+                  Editar perfil
+                </Link>
+                <Link to="/search" className="btn-primary text-sm">
+                  <Plus className="w-4 h-4" />
+                  Novo agendamento
+                </Link>
+              </>
             )}
           </div>
         </div>
