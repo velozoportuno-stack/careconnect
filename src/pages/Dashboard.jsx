@@ -442,6 +442,7 @@ export default function Dashboard() {
   const [ratingBooking, setRatingBooking]     = useState(null)
   const [ratingLoading, setRatingLoading]     = useState(false)
   const [profRating, setProfRating]           = useState(null)
+  const [ratingBreakdown, setRatingBreakdown] = useState(null)
   const [cancelTarget, setCancelTarget]       = useState(null)
   const [cancelLoading, setCancelLoading]     = useState(false)
   const [weeklyData, setWeeklyData]           = useState(null)
@@ -466,6 +467,24 @@ export default function Dashboard() {
         if (data?.service_type)  setProfServiceType(data.service_type)
       })
   }, [isProvider, user])
+
+  // Fetch rating breakdown for the current user (both providers and clients receive ratings)
+  useEffect(() => {
+    if (!user?.id) return
+    supabase.from('reviews').select('rating').eq('reviewed_id', user.id)
+      .then(({ data }) => {
+        const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
+        if (data?.length) {
+          data.forEach((r) => { if (r.rating >= 1 && r.rating <= 5) counts[r.rating] += 1 })
+          const total = data.length
+          const avg = data.reduce((s, r) => s + r.rating, 0) / total
+          setRatingBreakdown({ counts, total, avg })
+        } else {
+          // No reviews yet — starts at 5 stars
+          setRatingBreakdown({ counts, total: 0, avg: 5 })
+        }
+      })
+  }, [user?.id])
 
   // Fetch weekly earnings for professionals
   useEffect(() => {
@@ -772,6 +791,43 @@ export default function Dashboard() {
             />
           )}
         </div>
+
+        {/* ── Rating Breakdown — visible on BOTH professional and client dashboards ── */}
+        {/* DO NOT REMOVE — required feature for both dashboards */}
+        {ratingBreakdown && (
+          <div className="card mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+              <h2 className="text-lg font-bold text-gray-900">
+                {isProvider ? 'A minha reputação' : 'A minha avaliação'}
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-3xl font-extrabold text-gray-900">
+                ⭐ {ratingBreakdown.avg.toFixed(1)}
+              </span>
+              <span className="text-sm text-gray-400">
+                ({ratingBreakdown.total} {ratingBreakdown.total === 1 ? 'avaliação' : 'avaliações'})
+              </span>
+            </div>
+            <div className="space-y-2">
+              {[5, 4, 3, 2, 1].map((n) => {
+                const count = ratingBreakdown.counts[n] || 0
+                const pct = ratingBreakdown.total > 0 ? (count / ratingBreakdown.total) * 100 : 0
+                return (
+                  <div key={n} className="flex items-center gap-2 text-sm">
+                    <span className="w-3 text-right text-gray-600 font-medium flex-shrink-0">{n}</span>
+                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 flex-shrink-0" />
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-5 text-right text-xs text-gray-400 flex-shrink-0">{count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── Service Manager (providers only) ── */}
         {isProvider && <ServiceManager />}

@@ -112,17 +112,14 @@ export default function Search() {
   }, [category, country, countryReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchItems() {
+    if (!country) return  // wait for client country to be determined
     setLoading(true)
 
-    // Query profiles for all professionals.
-    // NOTE: is_active does NOT exist on the profiles table — only on provider_services.
-    // No is_active filter here; all role='professional' rows are included.
     let q = supabase
       .from('profiles')
-      .select('id, full_name, avatar_url, bio, city, country, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, service_type, professional_id_number')
+      .select('*')
       .eq('role', 'professional')
-      // Include professionals with matching country OR null country (registered before the column existed)
-      .or(`country.eq.${country},country.is.null`)
+      .eq('country', country)
 
     if (category !== 'Todos') q = q.eq('service_type', category)
 
