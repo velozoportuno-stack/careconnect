@@ -56,7 +56,7 @@ export default function EditProfile() {
 
   // Profile 2 state — slot 2 in provider_services (provider only)
   const [profile2, setProfile2] = useState({
-    service_type: '', hourly_rate: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT',
+    service_type: '', hourly_rate: '', daily_rate: '', description: '', nursing_license: '', nursing_license_country: 'PT', custom_profession: '',
   })
 
   // Payment state (clients)
@@ -105,7 +105,7 @@ export default function EditProfile() {
     // Only load Perfil 2 from provider_services slot=2.
     const { data: s2, error } = await supabase
       .from('provider_services')
-      .select('service_type, hourly_rate, daily_rate, description, nursing_license, nursing_license_country')
+      .select('service_type, hourly_rate, daily_rate, description, nursing_license, nursing_license_country, custom_profession')
       .eq('professional_id', user.id)
       .eq('slot', 2)
       .maybeSingle()
@@ -121,6 +121,7 @@ export default function EditProfile() {
         description:             s2.description             || '',
         nursing_license:         s2.nursing_license         || '',
         nursing_license_country: s2.nursing_license_country || 'PT',
+        custom_profession:       s2.custom_profession       || '',
       })
     }
   }
@@ -257,7 +258,7 @@ export default function EditProfile() {
     console.log('[EditProfile] slot 2 existing row:', existing)
 
     // Whitelist — only provider_services columns (never leak profiles columns here)
-    const allowed = ['service_type', 'hourly_rate', 'daily_rate', 'description', 'nursing_license', 'nursing_license_country']
+    const allowed = ['service_type', 'hourly_rate', 'daily_rate', 'description', 'nursing_license', 'nursing_license_country', 'custom_profession']
     const safeFields = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)))
 
     if (existing) {
@@ -438,6 +439,7 @@ export default function EditProfile() {
           description:             profile2.description || null,
           nursing_license:         nl2 ? (profile2.nursing_license?.trim() || null) : null,
           nursing_license_country: nl2 ? (profile?.country || 'PT')                  : null,
+          custom_profession:       profile2.service_type === 'other' ? (profile2.custom_profession?.trim() || null) : null,
         })
       }
 
@@ -861,12 +863,25 @@ export default function EditProfile() {
                       ))}
                     </optgroup>
                     <optgroup label="── Serviços Gerais ──">
-                      {SERVICE_TYPES.filter((t) => t.group === 'general' && t.value !== 'other').map((t) => (
+                      {SERVICE_TYPES.filter((t) => t.group === 'general').map((t) => (
                         <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
                       ))}
                     </optgroup>
                   </select>
                 </div>
+
+                {/* "Outro" — custom profession name */}
+                {profile2.service_type === 'other' && (
+                  <div>
+                    <label className="input-label">Qual é a tua profissão?</label>
+                    <input
+                      className="input-field"
+                      placeholder="Ex: Técnico de ar condicionado..."
+                      value={profile2.custom_profession || ''}
+                      onChange={(e) => setProfile2((p) => ({ ...p, custom_profession: e.target.value }))}
+                    />
+                  </div>
+                )}
 
                 {profile2.service_type && (
                   <>

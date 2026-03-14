@@ -446,6 +446,7 @@ export default function Dashboard() {
   const [cancelTarget, setCancelTarget]       = useState(null)
   const [cancelLoading, setCancelLoading]     = useState(false)
   const [weeklyData, setWeeklyData]           = useState(null)
+  const [weekOffset, setWeekOffset]           = useState(0)  // 0=current, -1=last, etc.
   const [profCountry, setProfCountry]         = useState('PT')
 
   // Derive isProvider early — must be before any useEffect that references it
@@ -490,23 +491,20 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isProvider || !user) return
 
-    // Build an array of "YYYY-MM-DD" strings for Mon–Sun of the current week.
-    // We compare date strings (not Date objects) to avoid timezone drift.
+    // Build Mon of the selected week (weekOffset=0 → current week)
+    const toDateStr = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const now = new Date()
     const dow = now.getDay() // 0=Sun
     const diffToMon = dow === 0 ? -6 : 1 - dow
-    const toDateStr = (d) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const monday = new Date(now)
-    monday.setDate(now.getDate() + diffToMon)
+    monday.setDate(now.getDate() + diffToMon + weekOffset * 7)
     const weekDates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(monday)
       d.setDate(monday.getDate() + i)
       return toDateStr(d)
-    }) // ['2026-03-09', '2026-03-10', ..., '2026-03-15']
+    })
 
-    // Fetch ALL completed bookings — completed_at may be null for older rows;
-    // fall back to updated_at then scheduled_date.
     supabase
       .from('bookings')
       .select('completed_at, updated_at, scheduled_date, total_price')
@@ -516,7 +514,6 @@ export default function Dashboard() {
         if (error) console.error('[Faturamento] query error:', error)
         const days = weekDates.map((dateStr) => ({ dateStr, count: 0, total: 0 }))
         for (const b of (data || [])) {
-          // Take first 10 chars of timestamp ("YYYY-MM-DD") or use scheduled_date directly
           const dateStr =
             (b.completed_at || b.updated_at)?.slice(0, 10) || b.scheduled_date || null
           if (!dateStr) continue
@@ -531,7 +528,7 @@ export default function Dashboard() {
           return { date, count: d.count, total: d.total }
         }))
       })
-  }, [isProvider, user])
+  }, [isProvider, user, weekOffset])
 
   // Provider: subscribe to client-initiated cancellations via Supabase Realtime
   useEffect(() => {
@@ -836,18 +833,44 @@ export default function Dashboard() {
         {isProvider && weeklyData && (() => {
           const curr = profCountry === 'BR' ? 'R$' : '€'
           const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+          const MONTH_ABBR = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
           const weekTotal = weeklyData.reduce((s, d) => s + d.total, 0)
           const today = new Date()
-          const todayIdx = today.getDay() === 0 ? 6 : today.getDay() - 1
+          const todayIdx = weekOffset === 0 ? (today.getDay() === 0 ? 6 : today.getDay() - 1) : -1
+          const mon = weeklyData[0]?.date
+          const sun = weeklyData[6]?.date
+          const fmtDay = (d) => d ? `${d.getDate()} ${MONTH_ABBR[d.getMonth()]}` : ''
+          const weekLabel = mon && sun
+            ? sun.getFullYear() !== mon.getFullYear()
+              ? `${fmtDay(mon)} ${mon.getFullYear()} — ${fmtDay(sun)} ${sun.getFullYear()}`
+              : `${fmtDay(mon)} — ${fmtDay(sun)} ${sun.getFullYear()}`
+            : 'Esta semana'
 
           return (
             <div className="card mb-6">
               <div className="flex items-center gap-2 mb-4">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <h2 className="text-lg font-bold text-gray-900">Faturamento</h2>
-                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                  Esta semana
-                </span>
+                <div className="flex items-center gap-1 ml-auto">
+                  <button
+                    onClick={() => setWeekOffset((w) => w - 1)}
+                    className="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                    title="Semana anterior"
+                  >
+                    <ChevronDown className="w-4 h-4 rotate-90" />
+                  </button>
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                    {weekOffset === 0 ? 'Esta semana' : weekLabel}
+                  </span>
+                  <button
+                    onClick={() => setWeekOffset((w) => w + 1)}
+                    disabled={weekOffset >= 0}
+                    className="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Próxima semana"
+                  >
+                    <ChevronDown className="w-4 h-4 -rotate-90" />
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">

@@ -112,22 +112,25 @@ export default function Search() {
   }, [category, country, countryReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchItems() {
-    if (!country) return  // wait for client country to be determined
+    if (!user?.id) return
     setLoading(true)
+
+    const { data: clientProfile } = await supabase.from('profiles').select('country').eq('id', user.id).single()
 
     let q = supabase
       .from('profiles')
       .select('*')
       .eq('role', 'professional')
-      .eq('country', country)
+
+    // If clientProfile.country is null → show ALL professionals as fallback
+    if (clientProfile?.country) q = q.eq('country', clientProfile.country)
 
     if (category !== 'Todos') q = q.eq('service_type', category)
 
-    const { data, error } = await q.order('average_rating', { ascending: false, nullsFirst: false })
+    const { data: professionals, error } = await q.order('average_rating', { ascending: false, nullsFirst: false })
+    console.log('professionals found:', professionals?.length, error)
 
-    if (error) console.error('[Search] profiles query error:', error)
-    console.log(`[Search] country=${country} category=${category} → ${data?.length ?? 0} professionals`, data)
-    setItems((data || []).map(normalizeProfile))
+    setItems((professionals || []).map(normalizeProfile))
     setLoading(false)
   }
 
