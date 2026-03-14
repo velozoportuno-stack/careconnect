@@ -8,7 +8,7 @@ import {
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
-import { COUNTRIES, CITIES } from '../utils/locations'
+import { CITIES } from '../utils/locations'
 import { CLEANING_TYPES, SERVICE_TYPES, SERVICE_TYPE_LABELS, LICENSE_REQUIRED, getLicenseLabel } from '../utils/constants'
 import { stripePromise } from '../lib/stripe'
 
@@ -45,7 +45,6 @@ export default function EditProfile() {
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [success, setSuccess]       = useState(false)
   const [error, setError]           = useState(null)
-  const [country, setCountry]       = useState('PT')
 
   // Availability tab state
   const [schedule, setSchedule] = useState(
@@ -95,7 +94,6 @@ export default function EditProfile() {
         console.log('[Profile] generated professional_id_number:', newId)
       }
       setProfile(data)
-      setCountry(data.country || 'PT')
       // Load Perfil 2 from provider_services (Perfil 1 data is in profiles already)
       if (data.role === 'professional') loadSlots()
     }
@@ -452,7 +450,6 @@ export default function EditProfile() {
       const { data: fresh } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (fresh) {
         setProfile(fresh)
-        setCountry(fresh.country || 'PT')
       }
       if (isProvider) loadSlots()
     } catch (e) {
@@ -610,7 +607,7 @@ export default function EditProfile() {
                 />
               </div>
 
-              {/* Tax ID — NIF/NIPC for PT, CPF/CNPJ for BR */}
+              {/* Tax ID — options derived from locked registration country */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="input-label">
@@ -623,8 +620,8 @@ export default function EditProfile() {
                   >
                     <option value="">Seleciona...</option>
                     {(profile?.country === 'BR'
-                      ? [{ value: 'CPF', label: 'CPF' }, { value: 'CNPJ', label: 'CNPJ' }]
-                      : [{ value: 'NIF', label: 'NIF' }, { value: 'NIPC', label: 'NIPC' }]
+                      ? [{ value: 'CPF', label: 'CPF (Pessoa Física)' }, { value: 'CNPJ', label: 'CNPJ (Empresa)' }]
+                      : [{ value: 'NIF', label: 'NIF' }, { value: 'NIPC', label: 'NIPC (Empresa)' }]
                     ).map((t) => (
                       <option key={t.value} value={t.value}>{t.label}</option>
                     ))}
@@ -632,7 +629,7 @@ export default function EditProfile() {
                 </div>
                 <div>
                   <label className="input-label">
-                    {profile?.tax_id_type || (profile?.country === 'BR' ? 'CPF/CNPJ' : 'NIF/NIPC')}
+                    {profile?.tax_id_type || (profile?.country === 'BR' ? 'CPF / CNPJ' : 'NIF / NIPC')}
                   </label>
                   <input
                     className="input-field"
@@ -697,7 +694,7 @@ export default function EditProfile() {
                   {LICENSE_REQUIRED.has(profile?.service_type) && (
                     <div>
                       <label className="input-label">
-                        {getLicenseLabel(profile?.country || country, profile?.service_type)}
+                        {getLicenseLabel(profile?.country || 'PT', profile?.service_type)}
                       </label>
                       <input
                         className="input-field"
@@ -802,35 +799,27 @@ export default function EditProfile() {
                 </>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="input-label">País</label>
-                  <select
-                    className="input-field"
-                    value={profile?.country || 'PT'}
-                    onChange={(e) => {
-                      setCountry(e.target.value)
-                      setProfile((p) => ({ ...p, country: e.target.value, city: '' }))
-                    }}
-                  >
-                    {COUNTRIES.map((c) => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
+              {/* Country — locked at registration, display-only */}
+              <div>
+                <label className="input-label">País</label>
+                <div className="input-field bg-gray-50 text-gray-600 flex items-center gap-2 cursor-default select-none">
+                  {profile?.country === 'BR' ? '🇧🇷 Brasil' : '🇵🇹 Portugal'}
+                  <span className="ml-auto text-xs text-gray-400">Não editável</span>
                 </div>
-                <div>
-                  <label className="input-label">Cidade</label>
-                  <select
-                    className="input-field"
-                    value={profile?.city || ''}
-                    onChange={(e) => setProfile((p) => ({ ...p, city: e.target.value }))}
-                  >
-                    <option value="">Seleciona...</option>
-                    {(CITIES[country] || CITIES.PT).map((city) => (
-                      <option key={city} value={city}>{city}</option>
-                    ))}
-                  </select>
-                </div>
+              </div>
+
+              <div>
+                <label className="input-label">Cidade</label>
+                <select
+                  className="input-field"
+                  value={profile?.city || ''}
+                  onChange={(e) => setProfile((p) => ({ ...p, city: e.target.value }))}
+                >
+                  <option value="">Seleciona...</option>
+                  {(CITIES[profile?.country] || CITIES.PT).map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -904,7 +893,7 @@ export default function EditProfile() {
                       <div className="space-y-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
                         <div>
                           <label className="input-label">
-                            {getLicenseLabel(profile2.nursing_license_country || country, profile2.service_type)}
+                            {getLicenseLabel(profile2.nursing_license_country || profile?.country || 'PT', profile2.service_type)}
                           </label>
                           <input
                             type="text" className="input-field"
