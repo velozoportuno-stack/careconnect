@@ -66,13 +66,15 @@ function normalizeProfile(p) {
     cleaningTypes: p.cleaning_types || null,
     providerName: p.full_name, avatar: p.avatar_url,
     rating: p.average_rating || p.rating || 0, totalReviews: p.total_reviews || 0,
-    city: p.city,
+    city: p.city, country: p.country,
     professionalIdNumber: p.professional_id_number || null,
   }
 }
 
+const COUNTRY_FLAG = { PT: '🇵🇹', BR: '🇧🇷' }
+
 export default function Search() {
-  const { userRole } = useAppStore()
+  const { userRole, user } = useAppStore()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -88,7 +90,19 @@ export default function Search() {
   const [city, setCity]           = useState('')
   const [category, setCategory]   = useState(() => searchParams.get('category') || 'Todos')
 
-  useEffect(() => { fetchItems() }, [category])
+  // Load client's own country on mount and lock the default filter to it
+  useEffect(() => {
+    if (!user?.id) return
+    supabase.from('profiles').select('country').eq('id', user.id).single()
+      .then(({ data }) => {
+        if (data?.country) {
+          setCountry(data.country)
+          setCity('')
+        }
+      })
+  }, [user?.id])
+
+  useEffect(() => { fetchItems() }, [category, country]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchItems() {
     setLoading(true)
@@ -98,8 +112,9 @@ export default function Search() {
     // No is_active filter here; all role='professional' rows are included.
     let q = supabase
       .from('profiles')
-      .select('id, full_name, avatar_url, bio, city, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, service_type, professional_id_number')
+      .select('id, full_name, avatar_url, bio, city, country, hourly_rate, daily_rate, cleaning_types, rating, average_rating, total_reviews, service_type, professional_id_number')
       .eq('role', 'professional')
+      .eq('country', country)  // show only professionals from the same country as the client
 
     if (category !== 'Todos') q = q.eq('service_type', category)
 
@@ -290,8 +305,15 @@ export default function Search() {
                 )}
 
                 <div className="mt-4 flex items-center justify-between pt-4 border-t border-gray-100">
-                  <div className="flex items-center gap-1 text-xs text-gray-400">
-                    <MapPin className="w-3.5 h-3.5" />{item.city || 'Portugal'}
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5" />{item.city || 'Portugal'}
+                    </span>
+                    {item.country && COUNTRY_FLAG[item.country] && (
+                      <span title={item.country === 'PT' ? 'Portugal' : 'Brasil'}>
+                        {COUNTRY_FLAG[item.country]}
+                      </span>
+                    )}
                   </div>
                   <Link
                     to={`/profile/${item.providerId}${item.serviceId ? `?service=${item.serviceId}` : ''}`}
