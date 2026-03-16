@@ -39,31 +39,7 @@ export default function EditProfile() {
   const avatarRef = useRef(null)
   const editAddressRef = useRef(null)
 
-  // Google Places Autocomplete on the address field
-  useEffect(() => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
-    if (!apiKey || !editAddressRef.current) return
-    function init() {
-      if (!window.google?.maps?.places) return
-      const ac = new window.google.maps.places.Autocomplete(editAddressRef.current, { types: ['address'] })
-      ac.addListener('place_changed', () => {
-        const place = ac.getPlace()
-        if (place.formatted_address) setProfile((p) => ({ ...p, location: place.formatted_address }))
-      })
-    }
-    if (window.google?.maps?.places) { init(); return }
-    const scriptId = 'google-maps-places'
-    if (!document.getElementById(scriptId)) {
-      const s = document.createElement('script')
-      s.id = scriptId
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
-      s.async = true; s.onload = init
-      document.head.appendChild(s)
-    } else {
-      document.getElementById(scriptId).addEventListener('load', init)
-    }
-  }, [loading]) // re-run after profile loads so ref is attached
-
+  // ── All useState declarations MUST come before any useEffect ──────────────
   const [profile, setProfile]       = useState(null)
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState(false)
@@ -108,6 +84,32 @@ export default function EditProfile() {
   useEffect(() => {
     if (userRole === 'professional') loadAvailability()
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Google Places Autocomplete — runs after loading transitions to false so the address
+  // input ref is attached to the DOM. Declared here so [loading] is in scope.
+  useEffect(() => {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
+    if (!apiKey || !editAddressRef.current) return
+    function init() {
+      if (!window.google?.maps?.places) return
+      const ac = new window.google.maps.places.Autocomplete(editAddressRef.current, { types: ['address'] })
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace()
+        if (place.formatted_address) setProfile((p) => ({ ...p, location: place.formatted_address }))
+      })
+    }
+    if (window.google?.maps?.places) { init(); return }
+    const scriptId = 'google-maps-places'
+    if (!document.getElementById(scriptId)) {
+      const s = document.createElement('script')
+      s.id = scriptId
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+      s.async = true; s.onload = init
+      document.head.appendChild(s)
+    } else {
+      document.getElementById(scriptId).addEventListener('load', init)
+    }
+  }, [loading]) // re-run after profile loads so ref is attached
 
   async function fetchProfile() {
     const { data, error: fetchErr } = await supabase.from('profiles').select('*').eq('id', user.id).single()
@@ -529,6 +531,28 @@ export default function EditProfile() {
   const isProvider = userRole === 'professional'
   const pct = isProvider ? completionPercent(profile) : null
   const bankMissing = isProvider && !profile?.bank_account_value
+
+  // Safe field defaults — prevents any remaining undefined access in the JSX
+  const safeName        = profile?.full_name             || ''
+  const safePhone       = profile?.phone                 || ''
+  const safeCity        = profile?.city                  || ''
+  const safeAddress     = profile?.location              || ''
+  const safePostalCode  = profile?.postal_code           || ''
+  const safeBio         = profile?.bio                   || ''
+  const safeHourlyRate  = profile?.hourly_rate           || ''
+  const safeDailyRate   = profile?.daily_rate            || ''
+  const safeCountry     = profile?.country               || 'PT'
+  const safeTaxId       = profile?.tax_id                || ''
+  const safeTaxIdType   = profile?.tax_id_type           || ''
+  const safeMbway       = profile?.mbway_phone           || ''
+  const safePixKey      = profile?.pix_key               || ''
+  const safeBank        = profile?.bank_account_value    || ''
+  const safeBankName    = profile?.bank_account_name     || ''
+  const safeNurseLic    = profile?.nursing_license       || ''
+  const safeCustomProf  = profile?.custom_profession     || ''
+  const safeServiceType = profile?.service_type          || ''
+  const safeCleanDesc   = profile?.cleaning_description  || ''
+  const safeCleanTypes  = profile?.cleaning_types        || []
 
   return (
     <div className="min-h-screen bg-gray-50">
