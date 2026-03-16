@@ -392,6 +392,7 @@ export default function EditProfile() {
         city:         profile.city,
         country:      profile.country || 'PT',
         location:     profile.location,
+        postal_code:  profile.postal_code || null,
         avatar_url:   avatarUrl,
         updated_at:   new Date().toISOString(),
       }
@@ -860,9 +861,20 @@ export default function EditProfile() {
                 <input
                   ref={editAddressRef}
                   className="input-field"
-                  placeholder="Rua, número, código postal"
+                  placeholder="Rua, número, cidade"
                   value={profile?.location || ''}
                   onChange={(e) => setProfile((p) => ({ ...p, location: e.target.value }))}
+                />
+              </div>
+
+              {/* Postal Code */}
+              <div>
+                <label className="input-label">Código Postal</label>
+                <input
+                  className="input-field"
+                  placeholder={profile?.country === 'BR' ? '01310-100' : '1100-200'}
+                  value={profile?.postal_code || ''}
+                  onChange={(e) => setProfile((p) => ({ ...p, postal_code: e.target.value }))}
                 />
               </div>
             </div>

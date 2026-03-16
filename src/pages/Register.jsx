@@ -173,7 +173,8 @@ export default function Register() {
       phone:     values.phone,
       city:      values.city,
       country:   resolvedCountry,
-      location:  values.address || null,
+      location:    values.address || null,
+      postal_code: values.postal_code || null,
       role,
       ...(isProfessional && {
         service_type: values.service_type,
@@ -490,6 +491,17 @@ export default function Register() {
                 ref={(el) => { register('address').ref(el); addressInputRef.current = el }}
               />
               <p className="text-xs text-gray-400 mt-1">Usada para calcular distâncias e agendar visitas.</p>
+            </div>
+
+            {/* Postal Code */}
+            <div>
+              <label className="input-label">Código Postal</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder={country === 'BR' ? '01310-100' : '1100-200'}
+                {...register('postal_code')}
+              />
             </div>
 
             {/* Tax ID — Portugal (NIF/NIPC) or Brazil (CPF/CNPJ) */}

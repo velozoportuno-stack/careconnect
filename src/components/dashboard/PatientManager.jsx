@@ -1,4 +1,4 @@
-// PROTECTED — DO NOT REMOVE OR MODIFY WITHOUT EXPLICIT REQUEST
+// PROTECTED — DO NOT REMOVE
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Plus, Trash2, Bell, CheckCircle, XCircle, ChevronDown, ChevronUp,
