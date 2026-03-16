@@ -95,28 +95,12 @@ export default function Search() {
 
   useEffect(() => {
     async function loadProfessionals() {
-      // Step 1: get client country
-      const { data: me } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('country')
-        .eq('id', user.id)
-        .single()
-
-      console.log('Client country:', me?.country)
-
-      // Step 2: fetch professionals
-      let query = supabase
-        .from('profiles')
-        .select('*')
+        .select('id, full_name, role, service_type, country, avatar_url, hourly_rate, daily_rate, average_rating, city, bio, total_reviews, professional_id_number, cleaning_types')
         .eq('role', 'professional')
 
-      // Only filter by country if client has a country set
-      if (me?.country) {
-        query = query.eq('country', me.country)
-      }
-
-      const { data, error } = await query
-      console.log('Professionals found:', data?.length, 'Error:', error)
+      console.log('Search result:', data, 'Error:', error)
       setItems((data || []).map(normalizeProfile))
       setLoading(false)
     }
