@@ -63,6 +63,7 @@ export default function Profile() {
   const [address, setAddress]         = useState('')
   const [addressLat, setAddressLat]   = useState(null)
   const [addressLng, setAddressLng]   = useState(null)
+  const [postalCode, setPostalCode]   = useState('')
   const [notes, setNotes]             = useState('')
   const addressInputRef               = useRef(null)
   const [bookingError, setBookingError]   = useState(null)
@@ -227,6 +228,7 @@ export default function Profile() {
         address,
         addressLat,
         addressLng,
+        postalCode,
         notes,
         hourlyRate: bookingType === 'hours' ? rate : undefined,
         dailyRate:  bookingType === 'days'  ? rate : undefined,
@@ -567,6 +569,18 @@ export default function Profile() {
                     placeholder="Rua, número, cidade..."
                     value={address}
                     onChange={(e) => { setAddress(e.target.value); setAddressLat(null); setAddressLng(null) }}
+                  />
+                </div>
+
+                {/* Postal Code */}
+                <div>
+                  <label className="input-label">Código Postal</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder={profile?.country === 'BR' ? '01310-100' : '1100-200'}
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
                   />
                 </div>
 
