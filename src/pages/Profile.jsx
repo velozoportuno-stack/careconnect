@@ -85,6 +85,16 @@ export default function Profile() {
     property_type: '', rooms: '', area: '', floor: '', observations: '',
   })
 
+  // ── Address confirmation modal ────────────────────────────────────────────
+  const [showAddressModal, setShowAddressModal]   = useState(false)
+  const [useRegisteredAddr, setUseRegisteredAddr] = useState(null) // null | true | false
+  const [clientProfile, setClientProfile]         = useState(null)
+  const [customAddr, setCustomAddr]               = useState('')
+  const [customPostal, setCustomPostal]           = useState('')
+  const [customCity, setCustomCity]               = useState('')
+  const [customAddrNotes, setCustomAddrNotes]     = useState('')
+  const modalAddressRef                           = useRef(null)
+
   function generateTimesFromFreq(freqHours) {
     const h = parseInt(freqHours, 10)
     if (!h || h > 24) return ['08:00']
@@ -146,6 +156,38 @@ export default function Profile() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load client's registered address for the modal pre-fill
+  useEffect(() => {
+    if (!user) return
+    supabase.from('profiles').select('location, postal_code, city').eq('id', user.id).single()
+      .then(({ data }) => { if (data) setClientProfile(data) })
+  }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Google Places Autocomplete for the custom address input inside the modal
+  useEffect(() => {
+    if (!showAddressModal || useRegisteredAddr !== false) return
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
+    if (!apiKey) return
+    // Ref may not be attached yet — defer one frame
+    const timer = setTimeout(() => {
+      if (!modalAddressRef.current) return
+      function initModal() {
+        if (!window.google?.maps?.places) return
+        const ac = new window.google.maps.places.Autocomplete(modalAddressRef.current, { types: ['address'] })
+        ac.addListener('place_changed', () => {
+          const place = ac.getPlace()
+          if (place.formatted_address) setCustomAddr(place.formatted_address)
+        })
+      }
+      if (window.google?.maps?.places) { initModal(); return }
+      const scriptId = 'google-maps-places'
+      if (document.getElementById(scriptId)) {
+        document.getElementById(scriptId).addEventListener('load', initModal)
+      }
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [showAddressModal, useRegisteredAddr]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const fetchProfile = async () => {
     const preselectedServiceId = searchParams.get('service')
 
@@ -193,7 +235,8 @@ export default function Profile() {
     return displayRate() * duration
   }
 
-  const handleBook = async () => {
+  // Step 1 — validate date/time, then open the address confirmation modal
+  const handleBook = () => {
     if (!user) { navigate('/login'); return }
     if (!selectedDate) {
       setBookingError('Escolhe a data antes de agendar.')
@@ -203,6 +246,19 @@ export default function Profile() {
       setBookingError('Escolhe a hora de início antes de agendar.')
       return
     }
+    setBookingError(null)
+    // Reset modal state and open it
+    setUseRegisteredAddr(null)
+    setCustomAddr('')
+    setCustomPostal('')
+    setCustomCity('')
+    setCustomAddrNotes('')
+    setShowAddressModal(true)
+  }
+
+  // Step 2 — called by modal after address is confirmed; runs availability check + booking
+  const confirmBooking = async (finalAddr, finalPostal, finalCity, finalAddrNotes) => {
+    setShowAddressModal(false)
     setBookingLoading(true)
     setBookingError(null)
     try {
@@ -272,6 +328,11 @@ export default function Profile() {
         totalPrice:  totalPrice(),
         patientData:    HEALTH_PROS.has(profile?.service_type) && patient.name ? { ...patient, medications: meds } : null,
         serviceDetails: !HEALTH_PROS.has(profile?.service_type) && serviceDetails.property_type ? serviceDetails : null,
+        // Confirmed service address from modal
+        client_address:     finalAddr,
+        client_postal_code: finalPostal,
+        client_city:        finalCity,
+        client_notes:       finalAddrNotes,
       })
       navigate('/booking')
     } finally {
@@ -911,6 +972,133 @@ export default function Profile() {
           </div>
         </div>
       </main>
+
+      {/* ── Address confirmation modal ──────────────────────────────────── */}
+      {showAddressModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAddressModal(false) }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 relative">
+            {/* Close */}
+            <button
+              type="button"
+              onClick={() => setShowAddressModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-lg font-bold leading-none"
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+
+            {/* Title */}
+            <div className="flex items-center gap-2 pr-6">
+              <span className="text-xl">📍</span>
+              <h3 className="text-lg font-bold text-gray-900">Local de atendimento</h3>
+            </div>
+            <p className="text-sm text-gray-600">O endereço de atendimento é o mesmo do teu cadastro?</p>
+
+            {/* Registered address display */}
+            <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 space-y-0.5">
+              {clientProfile?.location
+                ? <p className="font-medium">{clientProfile.location}</p>
+                : <p className="text-gray-400 italic">Morada não registada</p>
+              }
+              {clientProfile?.postal_code && <p className="text-gray-500">{clientProfile.postal_code}{clientProfile?.city ? ` — ${clientProfile.city}` : ''}</p>}
+            </div>
+
+            {/* Choice buttons — shown first */}
+            {useRegisteredAddr === null && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => confirmBooking(
+                    clientProfile?.location    || '',
+                    clientProfile?.postal_code || '',
+                    clientProfile?.city        || '',
+                    ''
+                  )}
+                  className="btn-primary w-full py-3 text-sm"
+                >
+                  ✅ Sim, usar este endereço
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseRegisteredAddr(false)}
+                  className="w-full py-3 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-700 hover:border-primary-400 hover:bg-primary-50 transition-all"
+                >
+                  📝 Não, usar outro endereço
+                </button>
+              </div>
+            )}
+
+            {/* Custom address form */}
+            {useRegisteredAddr === false && (
+              <div className="space-y-3">
+                <div>
+                  <label className="input-label">Morada</label>
+                  <input
+                    ref={modalAddressRef}
+                    type="text"
+                    className="input-field"
+                    placeholder="Rua, número, localidade..."
+                    value={customAddr}
+                    onChange={(e) => setCustomAddr(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="input-label">Código Postal</label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder={profile?.country === 'BR' ? '01310-100' : '1100-200'}
+                      value={customPostal}
+                      onChange={(e) => setCustomPostal(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="input-label">Cidade</label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="Lisboa"
+                      value={customCity}
+                      onChange={(e) => setCustomCity(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="input-label">Observações</label>
+                  <textarea
+                    rows={2}
+                    className="input-field resize-none text-sm"
+                    placeholder="Ex: apartamento 3º esquerdo, código da porta 1234..."
+                    value={customAddrNotes}
+                    onChange={(e) => setCustomAddrNotes(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setUseRegisteredAddr(null)}
+                    className="w-full py-2.5 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-700 hover:border-gray-300 transition-all"
+                  >
+                    ← Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => confirmBooking(customAddr, customPostal, customCity, customAddrNotes)}
+                    className="btn-primary py-2.5 text-sm"
+                  >
+                    Confirmar endereço
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

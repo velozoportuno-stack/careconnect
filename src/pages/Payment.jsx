@@ -69,7 +69,12 @@ export default function Payment() {
 
   if (!pendingBooking) return null
 
-  const { provider, service, date, time, duration, days, bookingType, address, addressLat, addressLng, postalCode, notes, totalPrice, hourlyRate, dailyRate, patientData } = pendingBooking
+  const {
+    provider, service, date, time, duration, days, bookingType,
+    address, addressLat, addressLng, postalCode, notes,
+    totalPrice, hourlyRate, dailyRate, patientData,
+    client_address, client_postal_code, client_city, client_notes,
+  } = pendingBooking
 
   // Available payment methods based on country
   const availableMethods =
@@ -144,12 +149,15 @@ export default function Payment() {
           booking_type:   bookingType || 'hours',
           days_count:     bookingType === 'days' ? days : null,
           total_price:    totalPrice,
-          address:          address || null,
-          client_address:   address || null,
-          client_latitude:  addressLat || null,
-          client_longitude: addressLng || null,
-          postal_code:      postalCode || null,
-          notes:            notes || null,
+          address:             address || client_address || null,
+          client_address:      client_address || address || null,
+          client_postal_code:  client_postal_code || postalCode || null,
+          client_city:         client_city || null,
+          client_notes:        client_notes || notes || null,
+          client_latitude:     addressLat || null,
+          client_longitude:    addressLng || null,
+          postal_code:         postalCode || client_postal_code || null,
+          notes:               notes || client_notes || null,
           status:         'confirmed',
           payment_status: 'paid',
           payment_method: paymentMethod,
