@@ -94,18 +94,33 @@ export default function Search() {
   const [countryReady, setCountryReady] = useState(false)
 
   useEffect(() => {
+    if (!user?.id) return
     async function loadProfessionals() {
-      const { data, error } = await supabase
+      setLoading(true)
+
+      const { data: me } = await supabase
+        .from('profiles')
+        .select('country')
+        .eq('id', user.id)
+        .single()
+
+      console.log('Client country:', me?.country)
+
+      let query = supabase
         .from('profiles')
         .select('*')
         .eq('role', 'professional')
+        .eq('country', me.country)
 
+      if (category !== 'Todos') query = query.eq('service_type', category)
+
+      const { data, error } = await query
       console.log('All professionals:', data, error)
       setItems((data || []).map(normalizeProfile))
       setLoading(false)
     }
     loadProfessionals()
-  }, [])
+  }, [user?.id, category])
 
   // If user typed a 6-digit ID, search by that
   const idSearchActive = /^\d{6}$/.test(idQuery.trim())

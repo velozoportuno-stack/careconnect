@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, BadgeCheck, Loader2 } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -60,12 +60,53 @@ export default function Profile() {
   const [duration, setDuration] = useState(2)
   const [days, setDays] = useState(1)
   const [selectedService, setSelectedService] = useState(null)
-  const [address, setAddress]     = useState('')
-  const [notes, setNotes]         = useState('')
+  const [address, setAddress]         = useState('')
+  const [addressLat, setAddressLat]   = useState(null)
+  const [addressLng, setAddressLng]   = useState(null)
+  const [notes, setNotes]             = useState('')
+  const addressInputRef               = useRef(null)
   const [bookingError, setBookingError]   = useState(null)
   const [bookingLoading, setBookingLoading] = useState(false)
 
   useEffect(() => { fetchProfile() }, [id])
+
+  // Google Places Autocomplete for address field
+  useEffect(() => {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
+    if (!apiKey || !addressInputRef.current) return
+
+    function initAutocomplete() {
+      if (!window.google?.maps?.places) return
+      const ac = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+        types: ['address'],
+      })
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace()
+        if (place.formatted_address) setAddress(place.formatted_address)
+        if (place.geometry?.location) {
+          setAddressLat(place.geometry.location.lat())
+          setAddressLng(place.geometry.location.lng())
+        }
+      })
+    }
+
+    if (window.google?.maps?.places) {
+      initAutocomplete()
+      return
+    }
+
+    const scriptId = 'google-maps-places'
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement('script')
+      script.id = scriptId
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+      script.async = true
+      script.onload = initAutocomplete
+      document.head.appendChild(script)
+    } else {
+      document.getElementById(scriptId).addEventListener('load', initAutocomplete)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchProfile = async () => {
     const preselectedServiceId = searchParams.get('service')
@@ -184,6 +225,8 @@ export default function Profile() {
         duration:   bookingType === 'hours' ? duration : qty * 24,
         days:       bookingType === 'days' ? days : undefined,
         address,
+        addressLat,
+        addressLng,
         notes,
         hourlyRate: bookingType === 'hours' ? rate : undefined,
         dailyRate:  bookingType === 'days'  ? rate : undefined,
@@ -518,11 +561,12 @@ export default function Profile() {
                 <div>
                   <label className="input-label">Morada do serviço</label>
                   <input
+                    ref={addressInputRef}
                     type="text"
                     className="input-field"
                     placeholder="Rua, número, cidade..."
                     value={address}
-                    onChange={(e) => setAddress(e.target.value)}
+                    onChange={(e) => { setAddress(e.target.value); setAddressLat(null); setAddressLng(null) }}
                   />
                 </div>
 
