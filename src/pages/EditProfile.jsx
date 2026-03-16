@@ -110,19 +110,28 @@ export default function EditProfile() {
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchProfile() {
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-    if (data) {
-      // Generate a professional ID on first load if one wasn't created at signup
-      if (!data.professional_id_number && (data.role === 'professional' || userRole === 'professional')) {
-        const newId = Math.floor(100000 + Math.random() * 900000)
-        await supabase.from('profiles').update({ professional_id_number: newId }).eq('id', user.id)
-        data.professional_id_number = newId
-        console.log('[Profile] generated professional_id_number:', newId)
-      }
-      setProfile(data)
-      // Load Perfil 2 from provider_services (Perfil 1 data is in profiles already)
-      if (data.role === 'professional') loadSlots()
+    const { data, error: fetchErr } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+    if (fetchErr) {
+      console.error('[EditProfile] fetchProfile error:', fetchErr)
+      setError('Erro ao carregar perfil: ' + fetchErr.message)
+      setLoading(false)
+      return
     }
+    if (!data) {
+      setError('Perfil não encontrado. Tenta novamente mais tarde.')
+      setLoading(false)
+      return
+    }
+    // Generate a professional ID on first load if one wasn't created at signup
+    if (!data.professional_id_number && (data.role === 'professional' || userRole === 'professional')) {
+      const newId = Math.floor(100000 + Math.random() * 900000)
+      await supabase.from('profiles').update({ professional_id_number: newId }).eq('id', user.id)
+      data.professional_id_number = newId
+      console.log('[Profile] generated professional_id_number:', newId)
+    }
+    setProfile(data)
+    // Load Perfil 2 from provider_services (Perfil 1 data is in profiles already)
+    if (data.role === 'professional') loadSlots()
     setLoading(false)
   }
 
@@ -131,7 +140,7 @@ export default function EditProfile() {
     // Only load Perfil 2 from provider_services slot=2.
     const { data: s2, error } = await supabase
       .from('provider_services')
-      .select('service_type, hourly_rate, daily_rate, description, nursing_license, nursing_license_country, custom_profession')
+      .select('service_type, hourly_rate, daily_rate, description, nursing_license, nursing_license_country')
       .eq('professional_id', user.id)
       .eq('slot', 2)
       .maybeSingle()
@@ -492,6 +501,27 @@ export default function EditProfile() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+          <div className="card text-center py-12 space-y-4">
+            <AlertCircle className="w-10 h-10 text-red-400 mx-auto" />
+            <p className="text-gray-600 font-medium">{error || 'Não foi possível carregar o perfil.'}</p>
+            <button
+              type="button"
+              onClick={() => { setError(null); setLoading(true); fetchProfile() }}
+              className="btn-primary px-6 py-2.5"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        </main>
       </div>
     )
   }
