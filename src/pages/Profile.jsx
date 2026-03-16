@@ -72,13 +72,18 @@ export default function Profile() {
 
   // Patient tab — health professionals only
   const HEALTH_PROS = new Set(['nurse', 'caregiver', 'auxiliary_nurse'])
-  const [bookingTab, setBookingTab] = useState('booking') // 'booking' | 'patient'
+  const [bookingTab, setBookingTab] = useState('booking') // 'booking' | 'patient' | 'service'
   const [patient, setPatient] = useState({
     name: '', birth_date: '', medical_conditions: '', observations: '',
     allergies: '', insurance: '', emergency_contact_name: '',
     emergency_contact_phone: '', mobility_level: '', special_diet: '',
   })
   const [meds, setMeds] = useState([{ name: '', dosage: '', frequency: '', times: ['08:00'] }])
+
+  // Generic service details — non-health professionals
+  const [serviceDetails, setServiceDetails] = useState({
+    property_type: '', rooms: '', area: '', floor: '', observations: '',
+  })
 
   function generateTimesFromFreq(freqHours) {
     const h = parseInt(freqHours, 10)
@@ -265,7 +270,8 @@ export default function Profile() {
         hourlyRate:  bookingType === 'hours' ? rate : undefined,
         dailyRate:   bookingType === 'days'  ? rate : undefined,
         totalPrice:  totalPrice(),
-        patientData: patient.name ? { ...patient, medications: meds } : null,
+        patientData:    HEALTH_PROS.has(profile?.service_type) && patient.name ? { ...patient, medications: meds } : null,
+        serviceDetails: !HEALTH_PROS.has(profile?.service_type) && serviceDetails.property_type ? serviceDetails : null,
       })
       navigate('/booking')
     } finally {
@@ -501,25 +507,27 @@ export default function Profile() {
                 <h2 className="text-lg font-bold text-gray-900">Agendar serviço</h2>
               </div>
 
-              {/* 🏥 Tab switcher — visible for all professionals */}
-              {profile && (
-                <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
-                  {[
-                    { key: 'booking', label: '📅 Agendamento' },
-                    { key: 'patient', label: '🏥 Paciente' },
-                  ].map(({ key, label }) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setBookingTab(key)}
-                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all
-                        ${bookingTab === key ? 'bg-white shadow-sm text-primary-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Tab switcher — health pros get 🏥 Paciente, others get 🏠 Serviço */}
+              {profile && (() => {
+                const tabs = HEALTH_PROS.has(profile.service_type)
+                  ? [{ key: 'booking', label: '📅 Agendamento' }, { key: 'patient', label: '🏥 Paciente' }]
+                  : [{ key: 'booking', label: '📅 Agendamento' }, { key: 'service', label: '🏠 Serviço' }]
+                return (
+                  <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
+                    {tabs.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setBookingTab(key)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all
+                          ${bookingTab === key ? 'bg-white shadow-sm text-primary-600' : 'text-gray-500 hover:text-gray-700'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )
+              })()}
 
               <div className="space-y-4">
                 {/* ── Booking form ── visible in 'booking' tab */}
@@ -780,6 +788,72 @@ export default function Profile() {
                         className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:border-primary-400 hover:text-primary-600 transition-all">
                         <Plus className="w-4 h-4" /> Adicionar medicamento
                       </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Generic service form ── non-health professionals */}
+                {bookingTab === 'service' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                      <span className="text-base">🏠</span>
+                      Detalha o serviço para o profissional preparar melhor a visita.
+                    </div>
+
+                    <div>
+                      <label className="input-label">Tipo de imóvel *</label>
+                      <select
+                        className="input-field"
+                        value={serviceDetails.property_type}
+                        onChange={(e) => setServiceDetails((s) => ({ ...s, property_type: e.target.value }))}
+                      >
+                        <option value="">Selecionar...</option>
+                        {['Casa', 'Apartamento', 'Loja', 'Escritório', 'Outro'].map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="input-label">Número de divisões</label>
+                        <input
+                          type="number" min="1" className="input-field"
+                          placeholder="Ex: 4"
+                          value={serviceDetails.rooms}
+                          onChange={(e) => setServiceDetails((s) => ({ ...s, rooms: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="input-label">Área (m²)</label>
+                        <input
+                          type="number" min="1" className="input-field"
+                          placeholder="Ex: 80"
+                          value={serviceDetails.area}
+                          onChange={(e) => setServiceDetails((s) => ({ ...s, area: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="input-label">Andar / Elevador</label>
+                      <input
+                        className="input-field"
+                        placeholder="Ex: 3º andar, com elevador"
+                        value={serviceDetails.floor}
+                        onChange={(e) => setServiceDetails((s) => ({ ...s, floor: e.target.value }))}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label">Observações do serviço</label>
+                      <textarea
+                        rows={3}
+                        className="input-field resize-none text-sm"
+                        placeholder="Informações adicionais sobre o serviço..."
+                        value={serviceDetails.observations}
+                        onChange={(e) => setServiceDetails((s) => ({ ...s, observations: e.target.value }))}
+                      />
                     </div>
                   </div>
                 )}
