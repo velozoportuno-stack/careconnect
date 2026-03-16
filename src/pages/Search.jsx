@@ -106,11 +106,19 @@ export default function Search() {
 
       console.log('Client country:', me?.country)
 
+      // Normalise: DB may store 'Brasil'/'Portugal' (full name) instead of 'BR'/'PT'
+      const countryCode =
+        me?.country === 'Brasil'   ? 'BR' :
+        me?.country === 'Portugal' ? 'PT' :
+        me?.country ?? 'PT'
+
+      console.log('Query country filter:', countryCode)
+
       let query = supabase
         .from('profiles')
         .select('*')
         .eq('role', 'professional')
-        .eq('country', me.country)
+        .eq('country', countryCode)
 
       if (category !== 'Todos') query = query.eq('service_type', category)
 

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { Heart, User, Briefcase, ArrowLeft, Camera, Upload, MapPin, Loader2, AlertCircle } from 'lucide-react'
@@ -45,7 +45,33 @@ export default function Register() {
   const [taxIdType, setTaxIdType] = useState('particular') // 'particular' | 'empresa'
   const [taxIdValue, setTaxIdValue] = useState('')
   const [taxIdError, setTaxIdError] = useState('')
-  const avatarFileRef = useRef(null)
+  const avatarFileRef   = useRef(null)
+  const addressInputRef = useRef(null)
+
+  // Google Places Autocomplete on the address field
+  useEffect(() => {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
+    if (!apiKey || !addressInputRef.current) return
+    function init() {
+      if (!window.google?.maps?.places) return
+      const ac = new window.google.maps.places.Autocomplete(addressInputRef.current, { types: ['address'] })
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace()
+        if (place.formatted_address) setValue('address', place.formatted_address)
+      })
+    }
+    if (window.google?.maps?.places) { init(); return }
+    const scriptId = 'google-maps-places'
+    if (!document.getElementById(scriptId)) {
+      const s = document.createElement('script')
+      s.id = scriptId
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+      s.async = true; s.onload = init
+      document.head.appendChild(s)
+    } else {
+      document.getElementById(scriptId).addEventListener('load', init)
+    }
+  }, [step]) // re-run when form step mounts
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm({
     defaultValues: { country: 'PT' },
@@ -461,6 +487,7 @@ export default function Register() {
                 className="input-field"
                 placeholder="Rua das Flores, 42, 3ºDto, 1100-200 Lisboa"
                 {...register('address')}
+                ref={(el) => { register('address').ref(el); addressInputRef.current = el }}
               />
               <p className="text-xs text-gray-400 mt-1">Usada para calcular distâncias e agendar visitas.</p>
             </div>
