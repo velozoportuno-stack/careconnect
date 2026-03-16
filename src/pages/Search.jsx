@@ -90,49 +90,41 @@ export default function Search() {
   const [city, setCity]           = useState('')
   const [category, setCategory]   = useState(() => searchParams.get('category') || 'Todos')
 
-  // Load client's own country on mount and lock the default filter to it
-  const [countryReady, setCountryReady] = useState(false)
-
   useEffect(() => {
-    if (!user?.id) return
     async function loadProfessionals() {
       setLoading(true)
-
+      // Get client's registered country
       const { data: me } = await supabase
         .from('profiles')
         .select('country')
         .eq('id', user.id)
         .single()
 
-      console.log('Client country:', me?.country)
+      const country = me?.country
+      console.log('Client registered country:', country)
 
-      // Normalize both sides — DB may store full name or code
-      const normalize = (c) => {
-        if (!c) return null
-        if (c === 'Portugal' || c === 'PT') return 'PT'
-        if (c === 'Brasil'   || c === 'BR') return 'BR'
-        return c
-      }
-      const clientCountry = normalize(me?.country)
+      if (country) setCountry(country)
 
-      console.log('Query country filter:', clientCountry)
-
+      // Build query
       let query = supabase
         .from('profiles')
         .select('*')
         .eq('role', 'professional')
 
-      if (clientCountry) query = query.eq('country', clientCountry)
+      // Always filter by registration country
+      if (country) {
+        query = query.eq('country', country)
+      }
 
       if (category !== 'Todos') query = query.eq('service_type', category)
 
       const { data, error } = await query
-      console.log('All professionals:', data, error)
+      console.log('Professionals found:', data?.length, error)
       setItems((data || []).map(normalizeProfile))
       setLoading(false)
     }
     loadProfessionals()
-  }, [user?.id, category])
+  }, [user.id, category])
 
   // If user typed a 6-digit ID, search by that
   const idSearchActive = /^\d{6}$/.test(idQuery.trim())
@@ -180,10 +172,9 @@ export default function Search() {
               <input type="text" placeholder="Nome do profissional..." className="input-field pl-11 py-3.5 rounded-xl shadow-sm"
                 value={nameQuery} onChange={(e) => setName(e.target.value)} />
             </div>
-            <select value={country} onChange={(e) => { setCountry(e.target.value); setCity('') }}
-              className="input-field py-3.5 rounded-xl shadow-sm sm:w-44">
-              {COUNTRIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
+            <div className="bg-white/20 text-white px-4 py-3.5 rounded-xl shadow-sm font-medium text-sm sm:w-44 flex items-center gap-2">
+              {COUNTRY_FLAG[country] || '🌍'} {country === 'PT' ? 'Portugal' : country === 'BR' ? 'Brasil' : country}
+            </div>
             <select value={city} onChange={(e) => setCity(e.target.value)}
               className="input-field py-3.5 rounded-xl shadow-sm sm:w-48">
               <option value="">Todas as cidades</option>
