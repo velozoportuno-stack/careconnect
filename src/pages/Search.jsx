@@ -94,45 +94,34 @@ export default function Search() {
   const [countryReady, setCountryReady] = useState(false)
 
   useEffect(() => {
-    if (!user?.id) return
-    supabase.from('profiles').select('country').eq('id', user.id).single()
-      .then(({ data }) => {
-        if (data?.country) {
-          setCountry(data.country)
-          setCity('')
-        }
-        setCountryReady(true)
-      })
-  }, [user?.id])
+    async function loadProfessionals() {
+      // Step 1: get client country
+      const { data: me } = await supabase
+        .from('profiles')
+        .select('country')
+        .eq('id', user.id)
+        .single()
 
-  // Only fetch once client country is determined — avoids a false PT-default fetch for BR clients
-  useEffect(() => {
-    if (!countryReady) return
-    fetchItems()
-  }, [category, country, countryReady]) // eslint-disable-line react-hooks/exhaustive-deps
+      console.log('Client country:', me?.country)
 
-  async function fetchItems() {
-    if (!user?.id) return
-    setLoading(true)
+      // Step 2: fetch professionals
+      let query = supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'professional')
 
-    const { data: clientProfile } = await supabase.from('profiles').select('country').eq('id', user.id).single()
+      // Only filter by country if client has a country set
+      if (me?.country) {
+        query = query.eq('country', me.country)
+      }
 
-    let q = supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'professional')
-
-    // If clientProfile.country is null → show ALL professionals as fallback
-    if (clientProfile?.country) q = q.eq('country', clientProfile.country)
-
-    if (category !== 'Todos') q = q.eq('service_type', category)
-
-    const { data: professionals, error } = await q.order('average_rating', { ascending: false, nullsFirst: false })
-    console.log('professionals found:', professionals?.length, error)
-
-    setItems((professionals || []).map(normalizeProfile))
-    setLoading(false)
-  }
+      const { data, error } = await query
+      console.log('Professionals found:', data?.length, 'Error:', error)
+      setItems((data || []).map(normalizeProfile))
+      setLoading(false)
+    }
+    loadProfessionals()
+  }, [])
 
   // If user typed a 6-digit ID, search by that
   const idSearchActive = /^\d{6}$/.test(idQuery.trim())
