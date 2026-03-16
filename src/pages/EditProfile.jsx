@@ -37,6 +37,32 @@ export default function EditProfile() {
   const { user, userRole } = useAppStore()
   const navigate = useNavigate()
   const avatarRef = useRef(null)
+  const editAddressRef = useRef(null)
+
+  // Google Places Autocomplete on the address field
+  useEffect(() => {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
+    if (!apiKey || !editAddressRef.current) return
+    function init() {
+      if (!window.google?.maps?.places) return
+      const ac = new window.google.maps.places.Autocomplete(editAddressRef.current, { types: ['address'] })
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace()
+        if (place.formatted_address) setProfile((p) => ({ ...p, location: place.formatted_address }))
+      })
+    }
+    if (window.google?.maps?.places) { init(); return }
+    const scriptId = 'google-maps-places'
+    if (!document.getElementById(scriptId)) {
+      const s = document.createElement('script')
+      s.id = scriptId
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+      s.async = true; s.onload = init
+      document.head.appendChild(s)
+    } else {
+      document.getElementById(scriptId).addEventListener('load', init)
+    }
+  }, [loading]) // re-run after profile loads so ref is attached
 
   const [profile, setProfile]       = useState(null)
   const [loading, setLoading]       = useState(true)
@@ -832,6 +858,7 @@ export default function EditProfile() {
                   </span>
                 </label>
                 <input
+                  ref={editAddressRef}
                   className="input-field"
                   placeholder="Rua, número, código postal"
                   value={profile?.location || ''}
