@@ -94,45 +94,18 @@ export default function Search() {
   const [countryReady, setCountryReady] = useState(false)
 
   useEffect(() => {
-    if (!user?.id) return
-    supabase.from('profiles').select('country').eq('id', user.id).single()
-      .then(({ data }) => {
-        if (data?.country) {
-          setCountry(data.country)
-          setCity('')
-        }
-        setCountryReady(true)
-      })
-  }, [user?.id])
+    async function loadProfessionals() {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, service_type, country, avatar_url, hourly_rate, daily_rate, average_rating, city, bio, total_reviews, professional_id_number, cleaning_types')
+        .eq('role', 'professional')
 
-  // Only fetch once client country is determined — avoids a false PT-default fetch for BR clients
-  useEffect(() => {
-    if (!countryReady) return
-    fetchItems()
-  }, [category, country, countryReady]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function fetchItems() {
-    if (!user?.id) return
-    setLoading(true)
-
-    const { data: clientProfile } = await supabase.from('profiles').select('country').eq('id', user.id).single()
-
-    let q = supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'professional')
-
-    // If clientProfile.country is null → show ALL professionals as fallback
-    if (clientProfile?.country) q = q.eq('country', clientProfile.country)
-
-    if (category !== 'Todos') q = q.eq('service_type', category)
-
-    const { data: professionals, error } = await q.order('average_rating', { ascending: false, nullsFirst: false })
-    console.log('professionals found:', professionals?.length, error)
-
-    setItems((professionals || []).map(normalizeProfile))
-    setLoading(false)
-  }
+      console.log('Search result:', data, 'Error:', error)
+      setItems((data || []).map(normalizeProfile))
+      setLoading(false)
+    }
+    loadProfessionals()
+  }, [])
 
   // If user typed a 6-digit ID, search by that
   const idSearchActive = /^\d{6}$/.test(idQuery.trim())
