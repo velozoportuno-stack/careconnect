@@ -942,6 +942,7 @@ export default function Dashboard() {
           )
         })()}
 
+        {/* PROTECTED FEATURE — DO NOT REMOVE */}
         {/* ── Pacientes tab selector (care professionals only) ── */}
         {isProvider && PATIENT_CARE_ROLES.has(profServiceType) && (
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
