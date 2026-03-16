@@ -113,18 +113,11 @@ export default function Payment() {
       )
       const lat = pos.coords.latitude
       const lng = pos.coords.longitude
-      let clientAddress = null
-      try {
-        const r = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-          { headers: { 'Accept-Language': 'pt' } }
-        )
-        const geo = await r.json()
-        clientAddress = geo.display_name ?? null
-      } catch {}
+      // Only save GPS coordinates for tracking — do NOT overwrite client_address,
+      // which holds the service address the client typed in the booking form.
       await supabase
         .from('bookings')
-        .update({ client_latitude: lat, client_longitude: lng, client_address: clientAddress })
+        .update({ client_latitude: lat, client_longitude: lng })
         .eq('id', bookingId)
     } catch {}
   }
