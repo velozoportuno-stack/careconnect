@@ -162,35 +162,53 @@ export default function Payment() {
       // 2. Capture client GPS location (non-blocking — triggers permission dialog)
       captureClientLocation(booking.id)
 
-      // 3. If patient data, save it
+      // 3. If patient data, save to patients + patient_medications + medication_alarms
       if (patientData?.name) {
-        const { data: pp, error: ppErr } = await supabase
-          .from('patient_profiles')
+        const { data: savedPatient, error: patErr } = await supabase
+          .from('patients')
           .insert({
-            booking_id:         booking.id,
-            name:               patientData.name,
-            birth_date:         patientData.birth_date || null,
-            medical_conditions: patientData.medical_conditions || null,
-            observations:       patientData.observations || null,
+            professional_id:         provider.id,
+            client_id:               user.id,
+            booking_id:              booking.id,
+            name:                    patientData.name,
+            date_of_birth:           patientData.birth_date        || null,
+            medical_conditions:      patientData.medical_conditions || null,
+            observations:            patientData.observations       || null,
+            allergies:               patientData.allergies          || null,
+            insurance:               patientData.insurance          || null,
+            emergency_contact_name:  patientData.emergency_contact_name  || null,
+            emergency_contact_phone: patientData.emergency_contact_phone || null,
+            mobility_level:          patientData.mobility_level    || null,
+            special_diet:            patientData.special_diet       || null,
           })
           .select()
           .single()
 
-        if (!ppErr && pp && patientData.medications?.length) {
-          const medsToInsert = patientData.medications
-            .filter((m) => m.name.trim())
-            .map((m) => ({
-              patient_profile_id: pp.id,
-              booking_id:         booking.id,
-              name:               m.name,
-              dosage:             m.dosage || null,
-              frequency:          m.frequency || null,
-              schedule_times:     m.times?.filter(Boolean) || [],
-              is_active:          true,
-            }))
+        if (!patErr && savedPatient && patientData.medications?.length) {
+          for (const m of patientData.medications.filter((m) => m.name?.trim())) {
+            const { data: savedMed } = await supabase
+              .from('patient_medications')
+              .insert({
+                patient_id: savedPatient.id,
+                name:       m.name,
+                dosage:     m.dosage    || null,
+                frequency:  m.frequency || null,
+                times:      m.times?.filter(Boolean) || [],
+              })
+              .select()
+              .single()
 
-          if (medsToInsert.length) {
-            await supabase.from('medications').insert(medsToInsert)
+            // Create one alarm per scheduled time on the booking date
+            if (savedMed && m.times?.length && date) {
+              const alarms = m.times
+                .filter(Boolean)
+                .map((t) => ({
+                  medication_id:  savedMed.id,
+                  patient_id:     savedPatient.id,
+                  scheduled_time: `${date}T${t}:00`,
+                }))
+              if (alarms.length) await supabase.from('medication_alarms').insert(alarms)
+            }
           }
         }
       }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, BadgeCheck, Loader2 } from 'lucide-react'
+import { Star, MapPin, Shield, CalendarDays, CreditCard, Clock, BadgeCheck, Loader2,
+         Stethoscope, Pill, Plus, Trash2, User } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import AvailabilityCalendar from '../components/availability/AvailabilityCalendar'
 import { supabase } from '../lib/supabase'
@@ -66,8 +67,39 @@ export default function Profile() {
   const [postalCode, setPostalCode]   = useState('')
   const [notes, setNotes]             = useState('')
   const addressInputRef               = useRef(null)
-  const [bookingError, setBookingError]   = useState(null)
+  const [bookingError, setBookingError]     = useState(null)
   const [bookingLoading, setBookingLoading] = useState(false)
+
+  // Patient tab — health professionals only
+  const HEALTH_PROS = new Set(['nurse', 'caregiver', 'auxiliary_nurse'])
+  const [bookingTab, setBookingTab] = useState('booking') // 'booking' | 'patient'
+  const [patient, setPatient] = useState({
+    name: '', birth_date: '', medical_conditions: '', observations: '',
+    allergies: '', insurance: '', emergency_contact_name: '',
+    emergency_contact_phone: '', mobility_level: '', special_diet: '',
+  })
+  const [meds, setMeds] = useState([{ name: '', dosage: '', frequency: '', times: ['08:00'] }])
+
+  function generateTimesFromFreq(freqHours) {
+    const h = parseInt(freqHours, 10)
+    if (!h || h > 24) return ['08:00']
+    const times = []
+    let start = 8 * 60
+    while (times.length < Math.floor(24 / h)) {
+      times.push(`${String(Math.floor(start / 60) % 24).padStart(2, '0')}:00`)
+      start += h * 60
+    }
+    return times
+  }
+  function updateMed(i, field, val) {
+    setMeds((prev) => prev.map((m, idx) => {
+      if (idx !== i) return m
+      const updated = { ...m, [field]: val }
+      if (field === 'frequency' && val) updated.times = generateTimesFromFreq(val)
+      return updated
+    }))
+  }
+  function removeMed(i) { setMeds((prev) => prev.filter((_, idx) => idx !== i)) }
 
   useEffect(() => { fetchProfile() }, [id])
 
@@ -230,9 +262,10 @@ export default function Profile() {
         addressLng,
         postalCode,
         notes,
-        hourlyRate: bookingType === 'hours' ? rate : undefined,
-        dailyRate:  bookingType === 'days'  ? rate : undefined,
-        totalPrice: totalPrice(),
+        hourlyRate:  bookingType === 'hours' ? rate : undefined,
+        dailyRate:   bookingType === 'days'  ? rate : undefined,
+        totalPrice:  totalPrice(),
+        patientData: HEALTH_PROS.has(profile?.service_type) ? { ...patient, medications: meds } : null,
       })
       navigate('/booking')
     } finally {
@@ -468,7 +501,30 @@ export default function Profile() {
                 <h2 className="text-lg font-bold text-gray-900">Agendar serviço</h2>
               </div>
 
+              {/* 🏥 Tab switcher — health professionals only */}
+              {HEALTH_PROS.has(profile?.service_type) && (
+                <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
+                  {[
+                    { key: 'booking', label: '📅 Agendamento' },
+                    { key: 'patient', label: '🏥 Paciente' },
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setBookingTab(key)}
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all
+                        ${bookingTab === key ? 'bg-white shadow-sm text-primary-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="space-y-4">
+                {/* ── Booking form ── visible in 'booking' tab (or always for non-health pros) */}
+                {(!HEALTH_PROS.has(profile?.service_type) || bookingTab === 'booking') && <>
+
                 {/* Booking type toggle — visible for any professional with both rates */}
                 {profile.daily_rate && profile.hourly_rate && (
                   <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-xl">
@@ -595,6 +651,138 @@ export default function Profile() {
                     onChange={(e) => setNotes(e.target.value)}
                   />
                 </div>
+
+                </>}
+
+                {/* ── Patient form ── visible in 'patient' tab for health pros */}
+                {HEALTH_PROS.has(profile?.service_type) && bookingTab === 'patient' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                      <Stethoscope className="w-4 h-4 flex-shrink-0" />
+                      Dados clínicos confidenciais — só visíveis para cliente e profissional.
+                    </div>
+
+                    {/* Patient info */}
+                    <div><label className="input-label">Nome do paciente *</label>
+                      <input className="input-field" placeholder="Nome completo"
+                        value={patient.name} onChange={(e) => setPatient((p) => ({ ...p, name: e.target.value }))} />
+                    </div>
+                    <div><label className="input-label">Data de nascimento</label>
+                      <input type="date" className="input-field" value={patient.birth_date}
+                        onChange={(e) => setPatient((p) => ({ ...p, birth_date: e.target.value }))} />
+                    </div>
+                    <div><label className="input-label">Condições médicas</label>
+                      <textarea rows={2} className="input-field resize-none text-sm" placeholder="Diabetes, hipertensão, Alzheimer..."
+                        value={patient.medical_conditions} onChange={(e) => setPatient((p) => ({ ...p, medical_conditions: e.target.value }))} />
+                    </div>
+                    <div><label className="input-label">Observações gerais</label>
+                      <textarea rows={2} className="input-field resize-none text-sm" placeholder="Instruções especiais..."
+                        value={patient.observations} onChange={(e) => setPatient((p) => ({ ...p, observations: e.target.value }))} />
+                    </div>
+                    <div><label className="input-label">Alergias conhecidas</label>
+                      <textarea rows={2} className="input-field resize-none text-sm" placeholder="Penicilina, frutos secos..."
+                        value={patient.allergies} onChange={(e) => setPatient((p) => ({ ...p, allergies: e.target.value }))} />
+                    </div>
+                    <div><label className="input-label">Plano de saúde / Seguro</label>
+                      <input className="input-field" placeholder="Ex: Médis, AdvanceCare"
+                        value={patient.insurance} onChange={(e) => setPatient((p) => ({ ...p, insurance: e.target.value }))} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="input-label">Contacto emergência — nome</label>
+                        <input className="input-field text-sm" placeholder="Nome"
+                          value={patient.emergency_contact_name}
+                          onChange={(e) => setPatient((p) => ({ ...p, emergency_contact_name: e.target.value }))} />
+                      </div>
+                      <div><label className="input-label">Telefone</label>
+                        <input className="input-field text-sm" placeholder="+351 9XX XXX XXX"
+                          value={patient.emergency_contact_phone}
+                          onChange={(e) => setPatient((p) => ({ ...p, emergency_contact_phone: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div><label className="input-label">Nível de mobilidade</label>
+                      <select className="input-field" value={patient.mobility_level}
+                        onChange={(e) => setPatient((p) => ({ ...p, mobility_level: e.target.value }))}>
+                        <option value="">Selecionar...</option>
+                        <option value="autonomo">Autónomo</option>
+                        <option value="apoio_parcial">Apoio parcial</option>
+                        <option value="apoio_total">Apoio total</option>
+                        <option value="acamado">Acamado</option>
+                      </select>
+                    </div>
+                    <div><label className="input-label">Dieta especial</label>
+                      <textarea rows={2} className="input-field resize-none text-sm" placeholder="Sem sal, diabético, sem glúten..."
+                        value={patient.special_diet} onChange={(e) => setPatient((p) => ({ ...p, special_diet: e.target.value }))} />
+                    </div>
+
+                    {/* Medications */}
+                    <div className="pt-2 border-t border-gray-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Pill className="w-4 h-4 text-primary-600" />
+                        <span className="font-semibold text-gray-800 text-sm">Medicamentos</span>
+                      </div>
+                      {meds.map((med, i) => (
+                        <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-3 mb-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-600">Medicamento {i + 1}</span>
+                            {meds.length > 1 && (
+                              <button type="button" onClick={() => removeMed(i)} className="text-red-400 hover:text-red-600">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div><label className="input-label">Nome *</label>
+                              <input className="input-field text-sm" placeholder="Metformina"
+                                value={med.name} onChange={(e) => updateMed(i, 'name', e.target.value)} />
+                            </div>
+                            <div><label className="input-label">Dosagem</label>
+                              <input className="input-field text-sm" placeholder="500mg"
+                                value={med.dosage} onChange={(e) => updateMed(i, 'dosage', e.target.value)} />
+                            </div>
+                          </div>
+                          <div><label className="input-label">Frequência</label>
+                            <select className="input-field text-sm" value={med.frequency}
+                              onChange={(e) => updateMed(i, 'frequency', e.target.value)}>
+                              <option value="">Selecionar...</option>
+                              <option value="4">A cada 4h</option>
+                              <option value="6">A cada 6h</option>
+                              <option value="8">A cada 8h</option>
+                              <option value="12">A cada 12h</option>
+                              <option value="24">A cada 24h</option>
+                            </select>
+                          </div>
+                          <div><label className="input-label">Horários dos alarmes</label>
+                            <div className="space-y-1.5">
+                              {med.times.map((t, ti) => (
+                                <div key={ti} className="flex items-center gap-2">
+                                  <input type="time" className="input-field text-sm flex-1" value={t}
+                                    onChange={(e) => {
+                                      const updated = [...med.times]; updated[ti] = e.target.value
+                                      updateMed(i, 'times', updated)
+                                    }} />
+                                  {med.times.length > 1 && (
+                                    <button type="button" onClick={() => { const t2 = med.times.filter((_, ti2) => ti2 !== ti); updateMed(i, 'times', t2) }}
+                                      className="text-gray-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              <button type="button"
+                                onClick={() => updateMed(i, 'times', [...med.times, '12:00'])}
+                                className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:underline">
+                                <Plus className="w-3 h-3" /> Adicionar horário
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <button type="button"
+                        onClick={() => setMeds((prev) => [...prev, { name: '', dosage: '', frequency: '', times: ['08:00'] }])}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm font-medium text-gray-500 hover:border-primary-400 hover:text-primary-600 transition-all">
+                        <Plus className="w-4 h-4" /> Adicionar medicamento
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Price summary */}
                 {(displayRate() > 0) && (
