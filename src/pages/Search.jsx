@@ -100,7 +100,9 @@ export default function Search() {
         .eq('id', user.id)
         .single()
 
-      const country = me?.country
+      const raw = me?.country
+      // Normalize: DB may store full name ('Portugal'/'Brasil') or code ('PT'/'BR')
+      const country = raw === 'Portugal' ? 'PT' : raw === 'Brasil' ? 'BR' : raw
       console.log('Client registered country:', country)
 
       if (country) setCountry(country)

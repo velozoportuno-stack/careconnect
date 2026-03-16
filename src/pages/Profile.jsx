@@ -265,7 +265,7 @@ export default function Profile() {
         hourlyRate:  bookingType === 'hours' ? rate : undefined,
         dailyRate:   bookingType === 'days'  ? rate : undefined,
         totalPrice:  totalPrice(),
-        patientData: HEALTH_PROS.has(profile?.service_type) ? { ...patient, medications: meds } : null,
+        patientData: patient.name ? { ...patient, medications: meds } : null,
       })
       navigate('/booking')
     } finally {
@@ -501,8 +501,8 @@ export default function Profile() {
                 <h2 className="text-lg font-bold text-gray-900">Agendar serviço</h2>
               </div>
 
-              {/* 🏥 Tab switcher — health professionals only */}
-              {HEALTH_PROS.has(profile?.service_type) && (
+              {/* 🏥 Tab switcher — visible for all professionals */}
+              {profile && (
                 <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
                   {[
                     { key: 'booking', label: '📅 Agendamento' },
@@ -522,8 +522,8 @@ export default function Profile() {
               )}
 
               <div className="space-y-4">
-                {/* ── Booking form ── visible in 'booking' tab (or always for non-health pros) */}
-                {(!HEALTH_PROS.has(profile?.service_type) || bookingTab === 'booking') && <>
+                {/* ── Booking form ── visible in 'booking' tab */}
+                {bookingTab === 'booking' && <>
 
                 {/* Booking type toggle — visible for any professional with both rates */}
                 {profile.daily_rate && profile.hourly_rate && (
@@ -654,8 +654,8 @@ export default function Profile() {
 
                 </>}
 
-                {/* ── Patient form ── visible in 'patient' tab for health pros */}
-                {HEALTH_PROS.has(profile?.service_type) && bookingTab === 'patient' && (
+                {/* ── Patient form ── visible in 'patient' tab */}
+                {bookingTab === 'patient' && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                       <Stethoscope className="w-4 h-4 flex-shrink-0" />
