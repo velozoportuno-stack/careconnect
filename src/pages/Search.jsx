@@ -97,10 +97,10 @@ export default function Search() {
     async function loadProfessionals() {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name, role, service_type, country, avatar_url, hourly_rate, daily_rate, average_rating, city, bio, total_reviews, professional_id_number, cleaning_types')
+        .select('*')
         .eq('role', 'professional')
 
-      console.log('Search result:', data, 'Error:', error)
+      console.log('All professionals:', data, error)
       setItems((data || []).map(normalizeProfile))
       setLoading(false)
     }
@@ -221,6 +221,7 @@ export default function Search() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24">
+            <p className="text-red-600 font-bold text-lg mb-4">Nenhum profissional encontrado</p>
             <div className="text-5xl mb-4">{idSearchActive ? '🔍' : '🔍'}</div>
             <h3 className="text-lg font-semibold text-gray-700 mb-1">
               {idSearchActive ? `Nenhum profissional com ID ${idQuery}` : 'Nenhum profissional encontrado'}
