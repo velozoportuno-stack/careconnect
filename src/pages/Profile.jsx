@@ -96,6 +96,7 @@ export default function Profile() {
   const [customAddrLat, setCustomAddrLat]         = useState(null)
   const [customAddrLng, setCustomAddrLng]         = useState(null)
   const modalAddressRef                           = useRef(null)
+  const [googleLoaded, setGoogleLoaded]           = useState(!!window.google)
 
   // Geocode a plain address string → { lat, lng } using Google Maps if loaded,
   // otherwise Nominatim. postalCode and city are used as constraints to avoid
@@ -171,43 +172,33 @@ export default function Profile() {
 
   useEffect(() => { fetchProfile() }, [id])
 
-  // Google Places Autocomplete for address field
+  // Load Google Maps script once
   useEffect(() => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
-    if (!apiKey || !addressInputRef.current) return
+    if (window.google) return
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY}&libraries=places`
+    script.async = true
+    script.defer = true
+    script.onload = () => setGoogleLoaded(true)
+    document.head.appendChild(script)
+  }, [])
 
-    function initAutocomplete() {
-      if (!window.google?.maps?.places) return
-      const ac = new window.google.maps.places.Autocomplete(addressInputRef.current, {
-        types: ['address'],
-      })
-      ac.addListener('place_changed', () => {
-        const place = ac.getPlace()
-        if (place.formatted_address) setAddress(place.formatted_address)
-        if (place.geometry?.location) {
-          setAddressLat(place.geometry.location.lat())
-          setAddressLng(place.geometry.location.lng())
-        }
-      })
-    }
-
-    if (window.google?.maps?.places) {
-      initAutocomplete()
-      return
-    }
-
-    const scriptId = 'google-maps-places'
-    if (!document.getElementById(scriptId)) {
-      const script = document.createElement('script')
-      script.id = scriptId
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
-      script.async = true
-      script.onload = initAutocomplete
-      document.head.appendChild(script)
-    } else {
-      document.getElementById(scriptId).addEventListener('load', initAutocomplete)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Autocomplete for the main booking address input
+  useEffect(() => {
+    if (!window.google || !addressInputRef.current) return
+    const autocomplete = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+      types: ['address'],
+      componentRestrictions: { country: ['pt', 'br'] },
+    })
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace()
+      if (place.formatted_address) setAddress(place.formatted_address)
+      if (place.geometry?.location) {
+        setAddressLat(place.geometry.location.lat())
+        setAddressLng(place.geometry.location.lng())
+      }
+    })
+  }, [googleLoaded])
 
   // Load client's registered address for the modal pre-fill
   useEffect(() => {
@@ -216,36 +207,27 @@ export default function Profile() {
       .then(({ data }) => { if (data) setClientProfile(data) })
   }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Google Places Autocomplete for the custom address input inside the modal
+  // Autocomplete for the custom address input inside the address-confirmation modal
   useEffect(() => {
-    if (!showAddressModal || useRegisteredAddr !== false) return
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
-    if (!apiKey) return
-    // Ref may not be attached yet — defer one frame
+    if (!window.google || !showAddressModal || useRegisteredAddr !== false) return
+    // Defer slightly so the modal input has mounted in the DOM
     const timer = setTimeout(() => {
       if (!modalAddressRef.current) return
-      function initModal() {
-        if (!window.google?.maps?.places) return
-        const ac = new window.google.maps.places.Autocomplete(modalAddressRef.current, { types: ['address'] })
-        ac.addListener('place_changed', () => {
-          const place = ac.getPlace()
-          if (place.formatted_address) setCustomAddr(place.formatted_address)
-          // Capture coordinates from Places result so we geocode the typed address,
-          // not the client's current GPS position
-          if (place.geometry?.location) {
-            setCustomAddrLat(place.geometry.location.lat())
-            setCustomAddrLng(place.geometry.location.lng())
-          }
-        })
-      }
-      if (window.google?.maps?.places) { initModal(); return }
-      const scriptId = 'google-maps-places'
-      if (document.getElementById(scriptId)) {
-        document.getElementById(scriptId).addEventListener('load', initModal)
-      }
+      const autocomplete = new window.google.maps.places.Autocomplete(modalAddressRef.current, {
+        types: ['address'],
+        componentRestrictions: { country: ['pt', 'br'] },
+      })
+      autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace()
+        if (place.formatted_address) setCustomAddr(place.formatted_address)
+        if (place.geometry?.location) {
+          setCustomAddrLat(place.geometry.location.lat())
+          setCustomAddrLng(place.geometry.location.lng())
+        }
+      })
     }, 50)
     return () => clearTimeout(timer)
-  }, [showAddressModal, useRegisteredAddr]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [googleLoaded, showAddressModal, useRegisteredAddr])
 
   const fetchProfile = async () => {
     const preselectedServiceId = searchParams.get('service')

@@ -47,31 +47,31 @@ export default function Register() {
   const [taxIdError, setTaxIdError] = useState('')
   const avatarFileRef   = useRef(null)
   const addressInputRef = useRef(null)
+  const [googleLoaded, setGoogleLoaded] = useState(!!window.google)
 
-  // Google Places Autocomplete on the address field
+  // Load Google Maps script once
   useEffect(() => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
-    if (!apiKey || !addressInputRef.current) return
-    function init() {
-      if (!window.google?.maps?.places) return
-      const ac = new window.google.maps.places.Autocomplete(addressInputRef.current, { types: ['address'] })
-      ac.addListener('place_changed', () => {
-        const place = ac.getPlace()
-        if (place.formatted_address) setValue('address', place.formatted_address)
-      })
-    }
-    if (window.google?.maps?.places) { init(); return }
-    const scriptId = 'google-maps-places'
-    if (!document.getElementById(scriptId)) {
-      const s = document.createElement('script')
-      s.id = scriptId
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
-      s.async = true; s.onload = init
-      document.head.appendChild(s)
-    } else {
-      document.getElementById(scriptId).addEventListener('load', init)
-    }
-  }, [step]) // re-run when form step mounts
+    if (window.google) return
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY}&libraries=places`
+    script.async = true
+    script.defer = true
+    script.onload = () => setGoogleLoaded(true)
+    document.head.appendChild(script)
+  }, [])
+
+  // Init Autocomplete once Google is loaded and the form step (with address input) is visible
+  useEffect(() => {
+    if (!window.google || !addressInputRef.current) return
+    const autocomplete = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+      types: ['address'],
+      componentRestrictions: { country: ['pt', 'br'] },
+    })
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace()
+      if (place.formatted_address) setValue('address', place.formatted_address)
+    })
+  }, [googleLoaded, step]) // step re-mounts the address input when switching to 'form'
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm({
     defaultValues: { country: 'PT' },

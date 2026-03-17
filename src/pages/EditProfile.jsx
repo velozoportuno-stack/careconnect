@@ -68,6 +68,7 @@ export default function EditProfile() {
   const [cardError, setCardError]                   = useState(null)
   const [paymentSavingField, setPaymentSavingField] = useState(null)
   const [savedField, setSavedField]                 = useState(null)
+  const [googleLoaded, setGoogleLoaded]             = useState(!!window.google)
 
   // Stripe card element refs
   const cardContainerRef  = useRef(null)
@@ -85,31 +86,29 @@ export default function EditProfile() {
     if (userRole === 'professional') loadAvailability()
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Google Places Autocomplete — runs after loading transitions to false so the address
-  // input ref is attached to the DOM. Declared here so [loading] is in scope.
+  // Load Google Maps script once
   useEffect(() => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
-    if (!apiKey || !editAddressRef.current) return
-    function init() {
-      if (!window.google?.maps?.places) return
-      const ac = new window.google.maps.places.Autocomplete(editAddressRef.current, { types: ['address'] })
-      ac.addListener('place_changed', () => {
-        const place = ac.getPlace()
-        if (place.formatted_address) setProfile((p) => ({ ...p, location: place.formatted_address }))
-      })
-    }
-    if (window.google?.maps?.places) { init(); return }
-    const scriptId = 'google-maps-places'
-    if (!document.getElementById(scriptId)) {
-      const s = document.createElement('script')
-      s.id = scriptId
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
-      s.async = true; s.onload = init
-      document.head.appendChild(s)
-    } else {
-      document.getElementById(scriptId).addEventListener('load', init)
-    }
-  }, [loading]) // re-run after profile loads so ref is attached
+    if (window.google) return
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY}&libraries=places`
+    script.async = true
+    script.defer = true
+    script.onload = () => setGoogleLoaded(true)
+    document.head.appendChild(script)
+  }, [])
+
+  // Init Autocomplete once Google is loaded and the address input is in the DOM
+  useEffect(() => {
+    if (!window.google || !editAddressRef.current) return
+    const autocomplete = new window.google.maps.places.Autocomplete(editAddressRef.current, {
+      types: ['address'],
+      componentRestrictions: { country: ['pt', 'br'] },
+    })
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace()
+      if (place.formatted_address) setProfile((p) => ({ ...p, location: place.formatted_address }))
+    })
+  }, [googleLoaded, loading]) // loading → false means profile loaded and address input is rendered
 
   async function fetchProfile() {
     const { data, error: fetchErr } = await supabase.from('profiles').select('*').eq('id', user.id).single()
