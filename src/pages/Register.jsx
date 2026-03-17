@@ -279,6 +279,8 @@ export default function Register() {
             </div>
             <button
               onClick={async () => {
+                // No role chosen yet on this step — AuthCallback will default to 'client'
+                localStorage.removeItem('pendingRole')
                 const { error } = await supabase.auth.signInWithOAuth({
                   provider: 'google',
                   options: { redirectTo: `${window.location.origin}/auth/callback` },
@@ -728,11 +730,13 @@ export default function Register() {
             <button
               type="button"
               onClick={async () => {
+                // Save the already-chosen role so AuthCallback creates the profile correctly
+                localStorage.setItem('pendingRole', userType || 'client')
                 const { error } = await supabase.auth.signInWithOAuth({
                   provider: 'google',
                   options: { redirectTo: `${window.location.origin}/auth/callback` },
                 })
-                if (error) alert('Google não disponível de momento.')
+                if (error) { localStorage.removeItem('pendingRole'); alert('Google não disponível de momento.') }
               }}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-gray-200
                          rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300

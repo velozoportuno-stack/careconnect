@@ -60,11 +60,13 @@ function LoginForm({ role, onSuccess }) {
   const handleGoogle = async () => {
     setSocial(true)
     setError(null)
+    // Persist the selected role so AuthCallback can create the profile correctly
+    localStorage.setItem('pendingRole', role)
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
-    if (err) { setError('Google não disponível de momento.'); setSocial(false) }
+    if (err) { localStorage.removeItem('pendingRole'); setError('Google não disponível de momento.'); setSocial(false) }
   }
 
   return (
