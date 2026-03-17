@@ -93,7 +93,40 @@ export default function Profile() {
   const [customPostal, setCustomPostal]           = useState('')
   const [customCity, setCustomCity]               = useState('')
   const [customAddrNotes, setCustomAddrNotes]     = useState('')
+  const [customAddrLat, setCustomAddrLat]         = useState(null)
+  const [customAddrLng, setCustomAddrLng]         = useState(null)
   const modalAddressRef                           = useRef(null)
+
+  // Geocode a plain address string → { lat, lng } using Google Maps if loaded,
+  // otherwise Nominatim. Returns { lat: null, lng: null } on failure.
+  async function geocodeAddress(addr) {
+    if (!addr) return { lat: null, lng: null }
+    if (window.google?.maps?.Geocoder) {
+      try {
+        const geocoder = new window.google.maps.Geocoder()
+        const result = await new Promise((resolve, reject) =>
+          geocoder.geocode({ address: addr }, (results, status) => {
+            if (status === 'OK' && results[0]) resolve(results[0])
+            else reject(status)
+          })
+        )
+        return {
+          lat: result.geometry.location.lat(),
+          lng: result.geometry.location.lng(),
+        }
+      } catch {}
+    }
+    // Fallback: Nominatim (no API key required)
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`,
+        { headers: { 'Accept-Language': 'pt-PT' } }
+      )
+      const data = await r.json()
+      if (data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+    } catch {}
+    return { lat: null, lng: null }
+  }
 
   function generateTimesFromFreq(freqHours) {
     const h = parseInt(freqHours, 10)
@@ -177,6 +210,12 @@ export default function Profile() {
         ac.addListener('place_changed', () => {
           const place = ac.getPlace()
           if (place.formatted_address) setCustomAddr(place.formatted_address)
+          // Capture coordinates from Places result so we geocode the typed address,
+          // not the client's current GPS position
+          if (place.geometry?.location) {
+            setCustomAddrLat(place.geometry.location.lat())
+            setCustomAddrLng(place.geometry.location.lng())
+          }
         })
       }
       if (window.google?.maps?.places) { initModal(); return }
@@ -253,11 +292,14 @@ export default function Profile() {
     setCustomPostal('')
     setCustomCity('')
     setCustomAddrNotes('')
+    setCustomAddrLat(null)
+    setCustomAddrLng(null)
     setShowAddressModal(true)
   }
 
   // Step 2 — called by modal after address is confirmed; runs availability check + booking
-  const confirmBooking = async (finalAddr, finalPostal, finalCity, finalAddrNotes) => {
+  // finalLat/finalLng are geocoded from the confirmed service address (NOT client GPS)
+  const confirmBooking = async (finalAddr, finalPostal, finalCity, finalAddrNotes, finalLat = null, finalLng = null) => {
     setShowAddressModal(false)
     setBookingLoading(true)
     setBookingError(null)
@@ -328,11 +370,13 @@ export default function Profile() {
         totalPrice:  totalPrice(),
         patientData:    HEALTH_PROS.has(profile?.service_type) && patient.name ? { ...patient, medications: meds } : null,
         serviceDetails: !HEALTH_PROS.has(profile?.service_type) && serviceDetails.property_type ? serviceDetails : null,
-        // Confirmed service address from modal
+        // Confirmed service address from modal (geocoded from typed address, not GPS)
         client_address:     finalAddr,
         client_postal_code: finalPostal,
         client_city:        finalCity,
         client_notes:       finalAddrNotes,
+        client_lat:         finalLat,
+        client_lng:         finalLng,
       })
       navigate('/booking')
     } finally {
@@ -1012,12 +1056,18 @@ export default function Profile() {
               <div className="space-y-2">
                 <button
                   type="button"
-                  onClick={() => confirmBooking(
-                    clientProfile?.location    || '',
-                    clientProfile?.postal_code || '',
-                    clientProfile?.city        || '',
-                    ''
-                  )}
+                  onClick={async () => {
+                    const addr = clientProfile?.location || ''
+                    const { lat, lng } = await geocodeAddress(addr)
+                    confirmBooking(
+                      addr,
+                      clientProfile?.postal_code || '',
+                      clientProfile?.city        || '',
+                      '',
+                      lat,
+                      lng
+                    )
+                  }}
                   className="btn-primary w-full py-3 text-sm"
                 >
                   ✅ Sim, usar este endereço
@@ -1088,7 +1138,17 @@ export default function Profile() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => confirmBooking(customAddr, customPostal, customCity, customAddrNotes)}
+                    onClick={async () => {
+                      // If no lat/lng from Places autocomplete, geocode the typed text
+                      let lat = customAddrLat
+                      let lng = customAddrLng
+                      if ((lat === null || lng === null) && customAddr) {
+                        const geo = await geocodeAddress(customAddr)
+                        lat = geo.lat
+                        lng = geo.lng
+                      }
+                      confirmBooking(customAddr, customPostal, customCity, customAddrNotes, lat, lng)
+                    }}
                     className="btn-primary py-2.5 text-sm"
                   >
                     Confirmar endereço
