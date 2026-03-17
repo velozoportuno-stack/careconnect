@@ -249,7 +249,7 @@ function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = '
   )
 }
 
-function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService, onCancelService }) {
+function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService, onCancelService, unreadCount, onOpenChat }) {
   const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
   const hasTracking = TRACKING_STATUSES.has(booking.status)
   const isProvider  = userRole === 'professional'
@@ -373,6 +373,23 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                   ✅ Concluir Serviço
                 </button>
               )}
+              {/* Chat — active bookings (confirmed / in_progress) */}
+              {isActive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onOpenChat(booking) }}
+                  className="relative flex items-center gap-1.5 text-xs font-semibold text-blue-600
+                             bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  💬 Chat
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full
+                                     bg-red-500 text-white text-[10px] font-bold
+                                     flex items-center justify-center px-1 leading-none">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+              )}
               {/* Cancel — provider on pending/confirmed */}
               {isProvider && canCancel && (
                 <button
@@ -448,6 +465,7 @@ export default function Dashboard() {
   const [weeklyData, setWeeklyData]           = useState(null)
   const [weekOffset, setWeekOffset]           = useState(0)  // 0=current, -1=last, etc.
   const [profCountry, setProfCountry]         = useState('PT')
+  const [unreadCounts, setUnreadCounts]       = useState({})
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
@@ -586,6 +604,53 @@ export default function Dashboard() {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [user, isProvider])
+
+  // Fetch initial unread message counts for all bookings
+  useEffect(() => {
+    if (!user?.id || !bookings.length) return
+    const ids = bookings.map((b) => b.id)
+    supabase
+      .from('messages')
+      .select('booking_id')
+      .in('booking_id', ids)
+      .neq('sender_id', user.id)
+      .is('read_at', null)
+      .then(({ data }) => {
+        const counts = {}
+        for (const m of (data || [])) {
+          counts[m.booking_id] = (counts[m.booking_id] || 0) + 1
+        }
+        setUnreadCounts(counts)
+      })
+  }, [user?.id, bookings.length])
+
+  // Realtime: increment unread badge when a new message arrives from the other party
+  useEffect(() => {
+    if (!user?.id) return
+    const channel = supabase
+      .channel(`dashboard-unread-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const msg = payload.new
+          if (msg.sender_id !== user.id) {
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [msg.booking_id]: (prev[msg.booking_id] || 0) + 1,
+            }))
+          }
+        }
+      )
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [user?.id])
+
+  const handleOpenChat = useCallback((booking) => {
+    // Clear badge immediately on open
+    setUnreadCounts((prev) => ({ ...prev, [booking.id]: 0 }))
+    navigate(`/chat/${booking.id}`)
+  }, [navigate])
 
   const handleFinishService = useCallback(async () => {
     if (!finishBooking) return
@@ -1048,6 +1113,8 @@ export default function Dashboard() {
                   onRefresh={fetchBookings}
                   onFinishService={(b) => setFinishBooking(b)}
                   onCancelService={(b) => setCancelTarget(b)}
+                  unreadCount={unreadCounts[booking.id] || 0}
+                  onOpenChat={handleOpenChat}
                 />
               ))}
             </div>
