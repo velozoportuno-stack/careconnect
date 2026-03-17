@@ -98,17 +98,25 @@ export default function Profile() {
   const modalAddressRef                           = useRef(null)
 
   // Geocode a plain address string → { lat, lng } using Google Maps if loaded,
-  // otherwise Nominatim. Returns { lat: null, lng: null } on failure.
-  async function geocodeAddress(addr) {
+  // otherwise Nominatim. postalCode and city are used as constraints to avoid
+  // matching streets with the same name in different cities.
+  async function geocodeAddress(addr, postalCode = '', city = '') {
     if (!addr) return { lat: null, lng: null }
     if (window.google?.maps?.Geocoder) {
       try {
         const geocoder = new window.google.maps.Geocoder()
+        const fullQuery = [addr, postalCode, city].filter(Boolean).join(', ')
         const result = await new Promise((resolve, reject) =>
-          geocoder.geocode({ address: addr }, (results, status) => {
-            if (status === 'OK' && results[0]) resolve(results[0])
-            else reject(status)
-          })
+          geocoder.geocode(
+            {
+              address: fullQuery,
+              ...(postalCode && { componentRestrictions: { postalCode } }),
+            },
+            (results, status) => {
+              if (status === 'OK' && results[0]) resolve(results[0])
+              else reject(status)
+            }
+          )
         )
         return {
           lat: result.geometry.location.lat(),
@@ -116,14 +124,26 @@ export default function Profile() {
         }
       } catch {}
     }
-    // Fallback: Nominatim (no API key required)
+    // Fallback: Nominatim structured search with postalcode + city constraints
     try {
+      const params = new URLSearchParams({ format: 'json', limit: '1' })
+      if (postalCode) params.set('postalcode', postalCode)
+      if (city)       params.set('city', city)
+      if (addr)       params.set('street', addr)
       const r = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`,
+        `https://nominatim.openstreetmap.org/search?${params}`,
         { headers: { 'Accept-Language': 'pt-PT' } }
       )
       const data = await r.json()
       if (data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+      // If structured search returns nothing, fall back to free-text with full query
+      const fullQuery = [addr, postalCode, city].filter(Boolean).join(', ')
+      const fbRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`,
+        { headers: { 'Accept-Language': 'pt-PT' } }
+      )
+      const fbData = await fbRes.json()
+      if (fbData[0]) return { lat: parseFloat(fbData[0].lat), lng: parseFloat(fbData[0].lon) }
     } catch {}
     return { lat: null, lng: null }
   }
@@ -1058,7 +1078,7 @@ export default function Profile() {
                   type="button"
                   onClick={async () => {
                     const addr = clientProfile?.location || ''
-                    const { lat, lng } = await geocodeAddress(addr)
+                    const { lat, lng } = await geocodeAddress(addr, clientProfile?.postal_code || '', clientProfile?.city || '')
                     confirmBooking(
                       addr,
                       clientProfile?.postal_code || '',
@@ -1143,7 +1163,7 @@ export default function Profile() {
                       let lat = customAddrLat
                       let lng = customAddrLng
                       if ((lat === null || lng === null) && customAddr) {
-                        const geo = await geocodeAddress(customAddr)
+                        const geo = await geocodeAddress(customAddr, customPostal, customCity)
                         lat = geo.lat
                         lng = geo.lng
                       }

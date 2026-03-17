@@ -13,6 +13,7 @@ import EditProfile from './pages/EditProfile'
 import Admin from './pages/Admin'
 import AuthCallback from './pages/AuthCallback'
 import CompleteProfile from './pages/CompleteProfile'
+import Chat from './pages/Chat'
 
 function PrivateRoute({ children }) {
   const { user } = useAppStore()
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/payment"          element={<PrivateRoute><Payment /></PrivateRoute>} />
         <Route path="/edit-profile"     element={<PrivateRoute><EditProfile /></PrivateRoute>} />
         <Route path="/admin"            element={<PrivateRoute><Admin /></PrivateRoute>} />
+        <Route path="/chat/:bookingId"  element={<PrivateRoute><Chat /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
   )

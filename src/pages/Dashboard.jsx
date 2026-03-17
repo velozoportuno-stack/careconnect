@@ -249,7 +249,7 @@ function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = '
   )
 }
 
-function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService, onCancelService }) {
+function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHours, onRefresh, onFinishService, onCancelService, unreadCount, onOpenChat }) {
   const s = STATUS_LABELS[booking.status] || STATUS_LABELS.pending
   const hasTracking = TRACKING_STATUSES.has(booking.status)
   const isProvider  = userRole === 'professional'
@@ -373,6 +373,23 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                   ✅ Concluir Serviço
                 </button>
               )}
+              {/* Chat — active bookings (confirmed / in_progress) */}
+              {isActive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onOpenChat(booking) }}
+                  className="relative flex items-center gap-1.5 text-xs font-semibold text-blue-600
+                             bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  💬 Chat
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full
+                                     bg-red-500 text-white text-[10px] font-bold
+                                     flex items-center justify-center px-1 leading-none">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+              )}
               {/* Cancel — provider on pending/confirmed */}
               {isProvider && canCancel && (
                 <button
@@ -448,6 +465,8 @@ export default function Dashboard() {
   const [weeklyData, setWeeklyData]           = useState(null)
   const [weekOffset, setWeekOffset]           = useState(0)  // 0=current, -1=last, etc.
   const [profCountry, setProfCountry]         = useState('PT')
+  const [unreadCounts, setUnreadCounts]       = useState({})
+  const [unreadBookingCount, setUnreadBookingCount] = useState(0)
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
@@ -586,6 +605,90 @@ export default function Dashboard() {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [user, isProvider])
+
+  // Fetch initial unread message counts for all bookings
+  useEffect(() => {
+    if (!user?.id || !bookings.length) return
+    const ids = bookings.map((b) => b.id)
+    supabase
+      .from('messages')
+      .select('booking_id')
+      .in('booking_id', ids)
+      .neq('sender_id', user.id)
+      .is('read_at', null)
+      .then(({ data }) => {
+        const counts = {}
+        for (const m of (data || [])) {
+          counts[m.booking_id] = (counts[m.booking_id] || 0) + 1
+        }
+        setUnreadCounts(counts)
+      })
+  }, [user?.id, bookings.length])
+
+  // Realtime: increment unread badge when a new message arrives from the other party
+  useEffect(() => {
+    if (!user?.id) return
+    const channel = supabase
+      .channel(`dashboard-unread-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const msg = payload.new
+          if (msg.sender_id !== user.id) {
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [msg.booking_id]: (prev[msg.booking_id] || 0) + 1,
+            }))
+          }
+        }
+      )
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [user?.id])
+
+  const handleOpenChat = useCallback((booking) => {
+    // Clear badge immediately on open
+    setUnreadCounts((prev) => ({ ...prev, [booking.id]: 0 }))
+    navigate(`/chat/${booking.id}`)
+  }, [navigate])
+
+  // ── Unread new-booking badge (professionals only) ──────────────────────────
+  // Fetch count of bookings the professional hasn't seen yet
+  useEffect(() => {
+    if (!user?.id || !isProvider) return
+    supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_id', user.id)
+      .is('provider_read_at', null)
+      .then(({ count }) => setUnreadBookingCount(count || 0))
+  }, [user?.id, isProvider])
+
+  // Realtime: increment badge when a new booking is inserted for this provider
+  useEffect(() => {
+    if (!user?.id || !isProvider) return
+    const channel = supabase
+      .channel(`provider-new-bookings-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'bookings', filter: `provider_id=eq.${user.id}` },
+        () => setUnreadBookingCount((c) => c + 1),
+      )
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [user?.id, isProvider])
+
+  // Mark bookings as read when professional is viewing the bookings tab
+  useEffect(() => {
+    if (!user?.id || !isProvider || loading || dashTab !== 'bookings') return
+    supabase
+      .from('bookings')
+      .update({ provider_read_at: new Date().toISOString() })
+      .eq('provider_id', user.id)
+      .is('provider_read_at', null)
+      .then(() => setUnreadBookingCount(0))
+  }, [dashTab, loading, user?.id, isProvider])
 
   const handleFinishService = useCallback(async () => {
     if (!finishBooking) return
@@ -958,7 +1061,15 @@ export default function Dashboard() {
                               ? 'bg-white shadow-sm text-primary-600'
                               : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {label}
+                <span className="relative inline-flex items-center gap-1.5">
+                  {label}
+                  {key === 'bookings' && unreadBookingCount > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px]
+                                     rounded-full bg-red-500 text-white text-[10px] font-bold px-1 leading-none">
+                      {unreadBookingCount > 9 ? '9+' : unreadBookingCount}
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </div>
@@ -972,7 +1083,15 @@ export default function Dashboard() {
         {/* ── Bookings panel ── */}
         {(dashTab === 'bookings' || !PATIENT_CARE_ROLES.has(profServiceType)) && <div className="card">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-bold text-gray-900">Agendamentos</h2>
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              Agendamentos
+              {isProvider && unreadBookingCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5
+                                 rounded-full bg-red-500 text-white text-xs font-bold px-1.5 leading-none">
+                  {unreadBookingCount > 9 ? '9+' : unreadBookingCount}
+                </span>
+              )}
+            </h2>
 
             <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
               {[
@@ -1048,6 +1167,8 @@ export default function Dashboard() {
                   onRefresh={fetchBookings}
                   onFinishService={(b) => setFinishBooking(b)}
                   onCancelService={(b) => setCancelTarget(b)}
+                  unreadCount={unreadCounts[booking.id] || 0}
+                  onOpenChat={handleOpenChat}
                 />
               ))}
             </div>
