@@ -5,8 +5,22 @@ import { supabase } from '../lib/supabase'
 
 /**
  * Landing page after a successful OAuth redirect.
- * – New user: reads pendingRole from localStorage, creates profile, → /edit-profile
- * – Returning user (profile exists): → /dashboard
+ *
+ * Why user.created_at?
+ *   Supabase's handle_new_user trigger fires immediately when the auth row is
+ *   created and inserts a profiles row with role='client' by default.  By the
+ *   time AuthCallback runs the profile already exists — so we can't use
+ *   "profile exists" to decide whether this is a new signup.
+ *   Instead we compare the auth-user's created_at to now: if < 2 minutes the
+ *   user just signed up; if older they are returning.
+ *
+ * Flow:
+ *   New user  (created_at < 2 min) + pendingRole in localStorage
+ *             → upsert profile with correct role → /edit-profile
+ *   Returning user (created_at >= 2 min)
+ *             → /dashboard  (never touch their stored role)
+ *   Edge case (new user, no pendingRole e.g. role-step Google button)
+ *             → upsert with 'client' → /edit-profile
  */
 export default function AuthCallback() {
   const navigate = useNavigate()
@@ -18,6 +32,15 @@ export default function AuthCallback() {
     const check = async () => {
       checked.current = true
 
+      // ── 1. Read pendingRole SYNCHRONOUSLY before any awaits ──────────────
+      // Must happen before the first await to avoid any race where something
+      // else might clear localStorage.
+      const pendingRole = localStorage.getItem('pendingRole')
+      localStorage.removeItem('pendingRole')
+
+      console.log('[AuthCallback] pendingRole from localStorage:', pendingRole)
+
+      // ── 2. Get session ────────────────────────────────────────────────────
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.user) {
         navigate('/login')
@@ -26,7 +49,43 @@ export default function AuthCallback() {
 
       const user = session.user
 
-      // Check if a profile already exists for this user
+      // ── 3. Decide: new signup or returning user? ──────────────────────────
+      // The Supabase trigger creates the profile row immediately on signup, so
+      // "profile exists" is useless as a new-user signal.  Use the auth-user
+      // creation time instead: anything < 2 minutes is a fresh registration.
+      const authUserAgeMs = Date.now() - new Date(user.created_at).getTime()
+      const isNewSignup   = authUserAgeMs < 120_000   // 2 minutes
+
+      console.log('[AuthCallback] auth user age (ms):', authUserAgeMs, '→ isNewSignup:', isNewSignup)
+
+      if (isNewSignup) {
+        // ── New OAuth user ─────────────────────────────────────────────────
+        const role = pendingRole || 'client'
+        console.log('[AuthCallback] user role being saved:', role)
+
+        const { error: upsertErr } = await supabase
+          .from('profiles')
+          .upsert(
+            {
+              id:         user.id,
+              full_name:  user.user_metadata?.full_name  || '',
+              avatar_url: user.user_metadata?.avatar_url || null,
+              role,
+            },
+            { onConflict: 'id' }
+          )
+
+        if (upsertErr) {
+          console.error('[AuthCallback] profile upsert error:', upsertErr.message)
+        }
+
+        // Send to edit-profile to complete missing details
+        navigate('/edit-profile')
+        return
+      }
+
+      // ── Returning user ────────────────────────────────────────────────────
+      // Check profile exists (it should) — go to dashboard.
       const { data: existing } = await supabase
         .from('profiles')
         .select('id, role')
@@ -34,29 +93,20 @@ export default function AuthCallback() {
         .single()
 
       if (existing?.role) {
-        // Returning user — go straight to dashboard
         navigate('/dashboard')
-        return
+      } else {
+        // Unusual: returning auth user with no profile row — create it.
+        await supabase.from('profiles').upsert(
+          {
+            id:         user.id,
+            full_name:  user.user_metadata?.full_name  || '',
+            avatar_url: user.user_metadata?.avatar_url || null,
+            role:       pendingRole || 'client',
+          },
+          { onConflict: 'id' }
+        )
+        navigate('/edit-profile')
       }
-
-      // New user — consume the intended role stored before OAuth redirect
-      const pendingRole = localStorage.getItem('pendingRole') || 'client'
-      localStorage.removeItem('pendingRole')
-
-      // Create the profile; ignore duplicate-key errors (trigger may have fired first)
-      const { error: insertErr } = await supabase.from('profiles').insert({
-        id:         user.id,
-        full_name:  user.user_metadata?.full_name  || '',
-        avatar_url: user.user_metadata?.avatar_url || null,
-        role:       pendingRole,
-      })
-      if (insertErr && insertErr.code !== '23505') {
-        console.error('[AuthCallback] profile insert error:', insertErr.message)
-      }
-
-      // Send to edit-profile so they can complete their details
-      // (works for both professional and client — the page adapts to role)
-      navigate('/edit-profile')
     }
 
     check()
@@ -75,4 +125,5 @@ export default function AuthCallback() {
     </div>
   )
 }
+
 
