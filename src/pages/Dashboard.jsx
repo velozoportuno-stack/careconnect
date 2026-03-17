@@ -235,6 +235,161 @@ const PATIENT_CARE_ROLES     = new Set(['caregiver', 'nurse', 'auxiliary_nurse']
 const ACTIVE_STATUSES        = new Set(['confirmed', 'in_progress'])
 const CANCELLABLE_STATUSES   = new Set(['pending', 'confirmed'])
 
+// ── Haversine distance (meters) ───────────────────────────────────────────────
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000
+  const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180
+  const Δφ = (lat2 - lat1) * Math.PI / 180
+  const Δλ = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// ── BookingPatientPanel ───────────────────────────────────────────────────────
+// PROTECTED — DO NOT REMOVE
+// Shows patient data linked to a specific booking (Feature 3 — professional view)
+function BookingPatientPanel({ bookingId }) {
+  const [patient,     setPatient]     = useState(null)
+  const [medications, setMedications] = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [notes,       setNotes]       = useState('')
+  const [saving,      setSaving]      = useState(false)
+  const [saved,       setSaved]       = useState(false)
+
+  useEffect(() => {
+    if (!bookingId) return
+    let cancelled = false
+    async function load() {
+      const { data: p } = await supabase
+        .from('patients').select('*').eq('booking_id', bookingId).maybeSingle()
+      if (cancelled) return
+      if (p) {
+        setPatient(p)
+        const { data: meds } = await supabase
+          .from('patient_medications').select('*').eq('patient_id', p.id)
+        if (!cancelled) setMedications(meds || [])
+      }
+      if (!cancelled) setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [bookingId])
+
+  const saveNotes = async () => {
+    setSaving(true)
+    await supabase.from('bookings').update({ notes }).eq('id', bookingId)
+    setSaving(false); setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  if (loading) return <div className="h-12 bg-gray-100 rounded-xl animate-pulse" />
+  return (
+    <div className="p-4 bg-white border border-gray-200 rounded-xl space-y-3">
+      <p className="text-sm font-bold text-gray-900">🏥 Dados do Paciente</p>
+      {!patient ? (
+        <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          O cliente ainda não preencheu os dados do paciente.
+        </p>
+      ) : (
+        <div className="space-y-1.5 text-sm text-gray-700">
+          <p><span className="font-medium text-gray-500">Nome:</span> {patient.name}</p>
+          {patient.date_of_birth && (
+            <p><span className="font-medium text-gray-500">Nascimento:</span> {new Date(patient.date_of_birth).toLocaleDateString('pt-PT')}</p>
+          )}
+          {patient.medical_conditions && (
+            <p><span className="font-medium text-gray-500">Condições:</span> {patient.medical_conditions}</p>
+          )}
+          {patient.allergies && (
+            <p><span className="font-medium text-gray-500">Alergias:</span> {patient.allergies}</p>
+          )}
+          {patient.observations && (
+            <p><span className="font-medium text-gray-500">Observações:</span> {patient.observations}</p>
+          )}
+          {medications.length > 0 && (
+            <div className="pt-1">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Medicação</p>
+              <div className="space-y-0.5">
+                {medications.map((m) => (
+                  <p key={m.id}>💊 {m.name} — {m.dosage} — {m.frequency}</p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Notas da visita</p>
+        <textarea
+          rows={2}
+          className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 resize-none"
+          placeholder="Adicionar notas sobre esta visita..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <button
+          onClick={saveNotes}
+          disabled={saving || !notes.trim()}
+          className="mt-1.5 text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'A guardar...' : saved ? '✓ Guardado' : 'Guardar notas'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── BookingServicePanel ───────────────────────────────────────────────────────
+// PROTECTED — DO NOT REMOVE
+// Shows service details + professional notes for non-care bookings (Feature 3)
+function BookingServicePanel({ booking }) {
+  const [notes,  setNotes]  = useState(booking.notes || '')
+  const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    await supabase.from('bookings').update({ notes }).eq('id', booking.id)
+    setSaving(false); setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="p-4 bg-white border border-gray-200 rounded-xl space-y-3">
+      <p className="text-sm font-bold text-gray-900">🔧 Detalhes do Serviço</p>
+      <div className="space-y-1.5 text-sm text-gray-700">
+        {booking.service?.title && (
+          <p><span className="font-medium text-gray-500">Serviço:</span> {booking.service.title}</p>
+        )}
+        {booking.duration_hours && (
+          <p><span className="font-medium text-gray-500">Duração:</span> {booking.duration_hours}h</p>
+        )}
+        {booking.client_notes ? (
+          <p><span className="font-medium text-gray-500">Observações do cliente:</span> {booking.client_notes}</p>
+        ) : (
+          <p className="italic text-gray-400">Sem observações do cliente.</p>
+        )}
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Notas da visita</p>
+        <textarea
+          rows={2}
+          className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 resize-none"
+          placeholder="Adicionar notas sobre esta visita..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <button
+          onClick={save}
+          disabled={saving || !notes.trim()}
+          className="mt-1.5 text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'A guardar...' : saved ? '✓ Guardado' : 'Guardar notas'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function StatCard({ icon: Icon, value, label, color = 'text-primary-600', bg = 'bg-primary-50' }) {
   return (
     <div className="card flex items-center gap-4">
@@ -260,6 +415,59 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
   const hasCare = CARE_ROLES.has(providerServiceType)
 
   const otherParty  = isProvider ? booking.client : booking.provider
+
+  // Feature 2: GPS proximity for "Iniciar Serviço"
+  const [providerPos,      setProviderPos]      = useState(null)
+  const [startingService,  setStartingService]  = useState(false)
+  // Feature 2: Elapsed timer for in_progress bookings
+  const [elapsedMs,        setElapsedMs]        = useState(0)
+
+  // Watch provider GPS when confirmed booking with client coordinates
+  useEffect(() => {
+    if (!isProvider || booking.status !== 'confirmed') return
+    if (!booking.client_latitude || !booking.client_longitude) return
+    if (!navigator.geolocation) return
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setProviderPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    )
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [isProvider, booking.status, booking.client_latitude, booking.client_longitude])
+
+  // Elapsed timer (updates every 30s while in_progress)
+  useEffect(() => {
+    if (booking.status !== 'in_progress') return
+    const startTime = new Date(booking.updated_at).getTime()
+    const tick = () => setElapsedMs(Date.now() - startTime)
+    tick()
+    const id = setInterval(tick, 30000)
+    return () => clearInterval(id)
+  }, [booking.status, booking.updated_at])
+
+  const distToClient = providerPos && booking.client_latitude && booking.client_longitude
+    ? haversineMeters(
+        providerPos.lat, providerPos.lng,
+        parseFloat(booking.client_latitude), parseFloat(booking.client_longitude)
+      )
+    : null
+  const nearClient = distToClient !== null && distToClient <= 200
+
+  const handleStartService = async (e) => {
+    e.stopPropagation()
+    setStartingService(true)
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'in_progress', updated_at: now })
+      .eq('id', booking.id)
+    setStartingService(false)
+    if (!error) onRefresh?.()
+  }
+
+  const elapsedH = Math.floor(elapsedMs / 3600000)
+  const elapsedM = Math.floor((elapsedMs % 3600000) / 60000)
+  const timerLabel = elapsedH > 0 ? `${elapsedH}h ${elapsedM}m` : `${elapsedM}m`
 
   return (
     <div className="border border-gray-100 rounded-2xl overflow-hidden bg-white">
@@ -358,11 +566,16 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
             </div>
           </div>
 
-          {/* GPS indicator */}
+          {/* GPS indicator + elapsed timer (Feature 2) */}
           {booking.status === 'in_progress' && (
-            <div className="flex items-center gap-1 mt-2 text-xs text-primary-600 font-medium">
-              <Navigation className="w-3 h-3 animate-pulse" />
-              {isProvider ? 'Partilha de localização activa' : 'A seguir localização em tempo real'}
+            <div className="flex items-center gap-2 mt-2 text-xs text-primary-600 font-medium flex-wrap">
+              <span className="flex items-center gap-1">
+                <Navigation className="w-3 h-3 animate-pulse" />
+                {isProvider ? 'Partilha de localização activa' : 'A seguir localização em tempo real'}
+              </span>
+              {elapsedMs > 0 && (
+                <span className="text-emerald-600 font-semibold">⏱ Serviço em curso: {timerLabel}</span>
+              )}
             </div>
           )}
 
@@ -379,6 +592,40 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                   <PlusCircle className="w-3.5 h-3.5" />
                   Acrescentar horas
                 </button>
+              )}
+              {/* Iniciar Serviço — Feature 2: provider, confirmed booking */}
+              {isProvider && booking.status === 'confirmed' && (
+                booking.client_latitude && booking.client_longitude ? (
+                  nearClient ? (
+                    <button
+                      onClick={handleStartService}
+                      disabled={startingService}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-white
+                                 bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                    >
+                      {startingService
+                        ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        : null}
+                      ▶️ Iniciar Serviço
+                    </button>
+                  ) : (
+                    <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                      📍 Aproxima-te do local para iniciar o serviço
+                    </span>
+                  )
+                ) : (
+                  <button
+                    onClick={handleStartService}
+                    disabled={startingService}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-white
+                               bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                  >
+                    {startingService
+                      ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      : null}
+                    ▶️ Iniciar Serviço
+                  </button>
+                )
               )}
               {/* Finish service — provider only, confirmed or in_progress */}
               {isProvider && isActive && (
@@ -457,6 +704,14 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
               isProvider={isProvider}
             />
           )}
+
+          {/* Feature 3 — Professional booking detail panels */}
+          {/* PROTECTED — DO NOT REMOVE */}
+          {isProvider && (
+            hasCare
+              ? <BookingPatientPanel bookingId={booking.id} />
+              : <BookingServicePanel booking={booking} />
+          )}
         </div>
       )}
     </div>
@@ -492,6 +747,8 @@ export default function Dashboard() {
   const [profServiceType, setProfServiceType] = useState(null)
   // dashTab: 'bookings' | 'patients' — only active for care professionals
   const [dashTab, setDashTab] = useState('bookings')
+  // clientDashTab: 'bookings' | 'patients' — Feature 1: client tab when they have care bookings
+  const [clientDashTab, setClientDashTab] = useState('bookings')
 
   useEffect(() => { fetchBookings() }, [])
 
@@ -599,6 +856,15 @@ export default function Dashboard() {
           filter: `client_id=eq.${user.id}`,
         },
         (payload) => {
+          // Feature 2: notify client when professional starts the service
+          if (payload.new?.status === 'in_progress') {
+            addNotification({
+              id: Date.now(),
+              message: 'O profissional chegou e iniciou o serviço',
+              type: 'success',
+            })
+            fetchBookings()
+          }
           if (payload.new?.status === 'completed') {
             addNotification({
               id: Date.now(),
@@ -794,6 +1060,12 @@ export default function Dashboard() {
     }
     setTimeout(() => setSuccessMsg(null), 5000)
   }, [cancelTarget, isProvider, fetchBookings])
+
+  // Feature 1: client has at least one confirmed/active booking with a care professional
+  const clientHasCareBooking = !isProvider && (bookings || []).some((b) =>
+    PATIENT_CARE_ROLES.has(b.provider?.service_type) &&
+    ['confirmed', 'in_progress'].includes(b.status)
+  )
 
   const CANCELLED_STATUSES = ['cancelled', 'cancelled_by_client', 'cancelled_by_professional']
   const filteredBookings = (bookings || []).filter((b) => {
@@ -1063,6 +1335,34 @@ export default function Dashboard() {
           )
         })()}
 
+        {/* PROTECTED — DO NOT REMOVE */}
+        {/* Feature 1 — Paciente tab selector for clients with confirmed care bookings */}
+        {clientHasCareBooking && (
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
+            {[
+              { key: 'bookings', label: '📅 Agendamentos' },
+              { key: 'patients', label: '🏥 Paciente'     },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setClientDashTab(key)}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all
+                            ${clientDashTab === key
+                              ? 'bg-white shadow-sm text-primary-600'
+                              : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* PROTECTED — DO NOT REMOVE */}
+        {/* Feature 1 — PatientManager for client (Paciente tab) */}
+        {clientHasCareBooking && clientDashTab === 'patients' && (
+          <PatientManager isProvider={false} />
+        )}
+
         {/* PROTECTED FEATURE — DO NOT REMOVE */}
         {/* ── Pacientes tab selector (care professionals only) ── */}
         {isProvider && PATIENT_CARE_ROLES.has(profServiceType) && (
@@ -1099,7 +1399,8 @@ export default function Dashboard() {
         )}
 
         {/* ── Bookings panel ── */}
-        {(dashTab === 'bookings' || !PATIENT_CARE_ROLES.has(profServiceType)) && <div className="card">
+        {(dashTab === 'bookings' || !PATIENT_CARE_ROLES.has(profServiceType)) &&
+         (clientDashTab === 'bookings' || !clientHasCareBooking) && <div className="card">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               Agendamentos
@@ -1193,12 +1494,6 @@ export default function Dashboard() {
           )}
         </div>}
 
-        {/* ── Patient records (clients whose professional is a care type) ── */}
-        {!isProvider && bookings.some((b) => PATIENT_CARE_ROLES.has(b.provider?.service_type)) && (
-          <div className="mt-6">
-            <PatientManager isProvider={false} />
-          </div>
-        )}
       </main>
 
       {/* Add Hours Modal */}
