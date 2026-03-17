@@ -1,19 +1,16 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Heart } from 'lucide-react'
-import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
 
 /**
  * Landing page after a successful OAuth redirect.
- * Waits for the session + profile role to be available, then routes:
- *   – new user (no role) → /complete-profile
- *   – returning user    → /dashboard
+ * – New user: reads pendingRole from localStorage, creates profile, → /edit-profile
+ * – Returning user (profile exists): → /dashboard
  */
 export default function AuthCallback() {
-  const { user, userRole } = useAppStore()
   const navigate = useNavigate()
-  const checked = useRef(false)
+  const checked  = useRef(false)
 
   useEffect(() => {
     if (checked.current) return
@@ -21,25 +18,45 @@ export default function AuthCallback() {
     const check = async () => {
       checked.current = true
 
-      // If no session yet, wait for onAuthStateChange (handled in useAuth)
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.user) {
         navigate('/login')
         return
       }
 
-      // Fetch the profile directly (don't rely on store timing)
-      const { data: profile } = await supabase
+      const user = session.user
+
+      // Check if a profile already exists for this user
+      const { data: existing } = await supabase
         .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
+        .select('id, role')
+        .eq('id', user.id)
         .single()
 
-      if (!profile?.role) {
-        navigate('/complete-profile')
-      } else {
+      if (existing?.role) {
+        // Returning user — go straight to dashboard
         navigate('/dashboard')
+        return
       }
+
+      // New user — consume the intended role stored before OAuth redirect
+      const pendingRole = localStorage.getItem('pendingRole') || 'client'
+      localStorage.removeItem('pendingRole')
+
+      // Create the profile; ignore duplicate-key errors (trigger may have fired first)
+      const { error: insertErr } = await supabase.from('profiles').insert({
+        id:         user.id,
+        full_name:  user.user_metadata?.full_name  || '',
+        avatar_url: user.user_metadata?.avatar_url || null,
+        role:       pendingRole,
+      })
+      if (insertErr && insertErr.code !== '23505') {
+        console.error('[AuthCallback] profile insert error:', insertErr.message)
+      }
+
+      // Send to edit-profile so they can complete their details
+      // (works for both professional and client — the page adapts to role)
+      navigate('/edit-profile')
     }
 
     check()
@@ -58,3 +75,4 @@ export default function AuthCallback() {
     </div>
   )
 }
+
