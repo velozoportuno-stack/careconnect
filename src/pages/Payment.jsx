@@ -164,7 +164,11 @@ export default function Payment() {
 
       if (bookingErr) throw new Error(bookingErr.message)
 
-      // 2. Capture client GPS location (non-blocking — triggers permission dialog)
+      // Send confirmation emails (fire-and-forget — never block the booking flow)
+      supabase.functions
+        .invoke('send-booking-emails', { body: { bookingId: booking.id } })
+        .catch((e) => console.warn('[send-booking-emails]', e))
+
       // captureClientLocation removed — client GPS must never overwrite the service address
       // coordinates (client_lat/lng) which come from geocoding the typed service address.
 

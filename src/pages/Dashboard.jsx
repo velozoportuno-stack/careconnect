@@ -466,6 +466,7 @@ export default function Dashboard() {
   const [weekOffset, setWeekOffset]           = useState(0)  // 0=current, -1=last, etc.
   const [profCountry, setProfCountry]         = useState('PT')
   const [unreadCounts, setUnreadCounts]       = useState({})
+  const [unreadBookingCount, setUnreadBookingCount] = useState(0)
 
   // Derive isProvider early — must be before any useEffect that references it
   const isProvider = userRole === 'professional'
@@ -651,6 +652,43 @@ export default function Dashboard() {
     setUnreadCounts((prev) => ({ ...prev, [booking.id]: 0 }))
     navigate(`/chat/${booking.id}`)
   }, [navigate])
+
+  // ── Unread new-booking badge (professionals only) ──────────────────────────
+  // Fetch count of bookings the professional hasn't seen yet
+  useEffect(() => {
+    if (!user?.id || !isProvider) return
+    supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_id', user.id)
+      .is('provider_read_at', null)
+      .then(({ count }) => setUnreadBookingCount(count || 0))
+  }, [user?.id, isProvider])
+
+  // Realtime: increment badge when a new booking is inserted for this provider
+  useEffect(() => {
+    if (!user?.id || !isProvider) return
+    const channel = supabase
+      .channel(`provider-new-bookings-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'bookings', filter: `provider_id=eq.${user.id}` },
+        () => setUnreadBookingCount((c) => c + 1),
+      )
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [user?.id, isProvider])
+
+  // Mark bookings as read when professional is viewing the bookings tab
+  useEffect(() => {
+    if (!user?.id || !isProvider || loading || dashTab !== 'bookings') return
+    supabase
+      .from('bookings')
+      .update({ provider_read_at: new Date().toISOString() })
+      .eq('provider_id', user.id)
+      .is('provider_read_at', null)
+      .then(() => setUnreadBookingCount(0))
+  }, [dashTab, loading, user?.id, isProvider])
 
   const handleFinishService = useCallback(async () => {
     if (!finishBooking) return
@@ -1023,7 +1061,15 @@ export default function Dashboard() {
                               ? 'bg-white shadow-sm text-primary-600'
                               : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {label}
+                <span className="relative inline-flex items-center gap-1.5">
+                  {label}
+                  {key === 'bookings' && unreadBookingCount > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px]
+                                     rounded-full bg-red-500 text-white text-[10px] font-bold px-1 leading-none">
+                      {unreadBookingCount > 9 ? '9+' : unreadBookingCount}
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </div>
@@ -1037,7 +1083,15 @@ export default function Dashboard() {
         {/* ── Bookings panel ── */}
         {(dashTab === 'bookings' || !PATIENT_CARE_ROLES.has(profServiceType)) && <div className="card">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-bold text-gray-900">Agendamentos</h2>
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              Agendamentos
+              {isProvider && unreadBookingCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5
+                                 rounded-full bg-red-500 text-white text-xs font-bold px-1.5 leading-none">
+                  {unreadBookingCount > 9 ? '9+' : unreadBookingCount}
+                </span>
+              )}
+            </h2>
 
             <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
               {[
