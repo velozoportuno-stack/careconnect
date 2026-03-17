@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar'
 import {
   CalendarDays, CheckCircle2, Clock, MapPin,
   Search, ChevronDown, ChevronUp, Plus, Briefcase, Navigation,
-  Settings, PlusCircle, Star, CheckCheck, X, AlertTriangle,
+  Settings, PlusCircle, Star, CheckCheck, X, AlertTriangle, ExternalLink,
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
@@ -324,10 +324,28 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                 </div>
               )}
               {booking.address && (
-                <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
-                  <MapPin className="w-3 h-3" />
-                  {booking.address}
-                </div>
+                isProvider ? (
+                  <a
+                    href={
+                      booking.client_latitude && booking.client_longitude
+                        ? `https://www.google.com/maps/dir/?api=1&destination=${booking.client_latitude},${booking.client_longitude}`
+                        : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(booking.address)}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 hover:underline mt-1 font-medium"
+                  >
+                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                    <span>{booking.address}</span>
+                    <ExternalLink className="w-2.5 h-2.5 flex-shrink-0 opacity-70" />
+                  </a>
+                ) : (
+                  <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
+                    <MapPin className="w-3 h-3" />
+                    {booking.address}
+                  </div>
+                )
               )}
             </div>
             <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
