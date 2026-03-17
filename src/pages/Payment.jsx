@@ -74,6 +74,7 @@ export default function Payment() {
     address, addressLat, addressLng, postalCode, notes,
     totalPrice, hourlyRate, dailyRate, patientData,
     client_address, client_postal_code, client_city, client_notes,
+    client_lat, client_lng,
   } = pendingBooking
 
   // Available payment methods based on country
@@ -147,8 +148,11 @@ export default function Payment() {
           client_postal_code:  client_postal_code || postalCode || null,
           client_city:         client_city || null,
           client_notes:        client_notes || notes || null,
-          client_latitude:     addressLat || null,
-          client_longitude:    addressLng || null,
+          // Use geocoded service-address coordinates (client_lat/lng from modal),
+          // falling back to Google Places result from the booking form field.
+          // Never use client's current GPS — that's the wrong location.
+          client_latitude:     client_lat  ?? addressLat  ?? null,
+          client_longitude:    client_lng  ?? addressLng  ?? null,
           postal_code:         postalCode || client_postal_code || null,
           notes:               notes || client_notes || null,
           status:         'confirmed',
@@ -161,7 +165,8 @@ export default function Payment() {
       if (bookingErr) throw new Error(bookingErr.message)
 
       // 2. Capture client GPS location (non-blocking — triggers permission dialog)
-      captureClientLocation(booking.id)
+      // captureClientLocation removed — client GPS must never overwrite the service address
+      // coordinates (client_lat/lng) which come from geocoding the typed service address.
 
       // 3. If patient data, save to patients + patient_medications + medication_alarms
       if (patientData?.name) {
