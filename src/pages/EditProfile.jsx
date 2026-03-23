@@ -11,6 +11,7 @@ import { useAppStore } from '../store/appStore'
 import { CITIES } from '../utils/locations'
 import { CLEANING_TYPES, SERVICE_TYPES, SERVICE_TYPE_LABELS, LICENSE_REQUIRED, getLicenseLabel } from '../utils/constants'
 import { stripePromise } from '../lib/stripe'
+import { useStripeConnect } from '../hooks/useStripeConnect'
 
 const DAYS_SCHEDULE = [
   { day: 1, label: 'Segunda-feira' },
@@ -35,6 +36,7 @@ function completionPercent(profile) {
 
 export default function EditProfile() {
   const { user, userRole } = useAppStore()
+  const { loading: connectLoading, error: connectError, startOnboarding } = useStripeConnect()
   const navigate = useNavigate()
   const avatarRef = useRef(null)
   const editAddressRef = useRef(null)
@@ -1049,6 +1051,62 @@ export default function EditProfile() {
               <CreditCard className="w-4 h-4 flex-shrink-0" />
               Os dados bancários são usados para transferir os seus pagamentos.
               Os dados são encriptados e nunca partilhados com clientes.
+            </div>
+
+            {/* ── Stripe Connect — automatic payment splitting ─────────────── */}
+            <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+              <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                💳 Receber Pagamentos Automaticamente
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Conecta a tua conta bancária via Stripe para receber <strong>85%</strong> de cada
+                pagamento diretamente. A plataforma retém 15% como comissão de serviço.
+              </p>
+
+              {profile?.stripe_account_id ? (
+                profile?.stripe_connect_status === 'active' ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    ✅ Conta bancária conectada — recebes 85% automaticamente.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      Onboarding em curso — completa o registo no Stripe.
+                    </div>
+                    <button
+                      onClick={startOnboarding}
+                      disabled={connectLoading}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl
+                                 bg-primary-600 hover:bg-primary-700 text-white font-semibold text-sm
+                                 transition-colors disabled:opacity-60"
+                    >
+                      {connectLoading
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <CreditCard className="w-4 h-4" />}
+                      Continuar Registo Stripe
+                    </button>
+                  </div>
+                )
+              ) : (
+                <button
+                  onClick={startOnboarding}
+                  disabled={connectLoading}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl
+                             bg-primary-600 hover:bg-primary-700 text-white font-semibold text-sm
+                             transition-colors disabled:opacity-60"
+                >
+                  {connectLoading
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <CreditCard className="w-4 h-4" />}
+                  💳 Conectar conta bancária
+                </button>
+              )}
+
+              {connectError && (
+                <p className="text-red-500 text-xs">{connectError}</p>
+              )}
             </div>
 
             {/* Country-locked type hint */}

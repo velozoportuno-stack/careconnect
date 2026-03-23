@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CreditCard, Lock, CheckCircle, Star, Smartphone, Zap } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
+import { stripePromise } from '../lib/stripe'
 import { useAppStore } from '../store/appStore'
 import { formatCurrency, formatDate } from '../utils/formatters'
 
@@ -10,15 +11,6 @@ const ROLE_LABEL = {
   caregiver: 'Cuidador(a) de Idosos',
   nurse:     'Enfermeiro(a)',
   cleaner:   'Assistente de Limpeza',
-}
-
-function formatCardNumber(v) {
-  return v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim()
-}
-
-function formatExpiry(v) {
-  const digits = v.replace(/\D/g, '').slice(0, 4)
-  return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits
 }
 
 function PriceSummary({ bookingType, hourlyRate, dailyRate, duration, days, totalPrice }) {
@@ -44,7 +36,6 @@ export default function Payment() {
   const { user, pendingBooking, clearPendingBooking } = useAppStore()
   const navigate = useNavigate()
 
-  const [card, setCard]               = useState({ number: '', expiry: '', cvv: '', name: '' })
   const [phone, setPhone]             = useState('')
   const [pixKey, setPixKey]           = useState('')
   const [paymentMethod, setPaymentMethod] = useState('card')
@@ -53,19 +44,64 @@ export default function Payment() {
   const [error, setError]             = useState(null)
   const [success, setSuccess]         = useState(false)
 
+  // Stripe Card Element (vanilla Stripe.js — no React wrapper needed)
+  const cardElementRef  = useRef(null)   // DOM container node
+  const stripeCardRef   = useRef(null)   // Stripe CardElement instance
+  const stripeRef       = useRef(null)   // Stripe instance
+  const [cardReady, setCardReady] = useState(false)
+
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     if (!pendingBooking) { navigate('/search'); return }
-    // Fetch client country to show relevant payment methods
     supabase.from('profiles').select('country').eq('id', user.id).single()
       .then(({ data }) => {
         if (!data?.country) return
         setClientCountry(data.country)
-        // Pre-select country-preferred method
         if (data.country === 'PT') setPaymentMethod('mbway')
         else if (data.country === 'BR') setPaymentMethod('pix')
       })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mount Stripe CardElement whenever card method is selected
+  useEffect(() => {
+    if (paymentMethod !== 'card') {
+      // Destroy existing element when switching away
+      if (stripeCardRef.current) {
+        stripeCardRef.current.destroy()
+        stripeCardRef.current = null
+        setCardReady(false)
+      }
+      return
+    }
+
+    // Already mounted
+    if (stripeCardRef.current) return
+
+    let cancelled = false
+
+    stripePromise.then((stripe) => {
+      if (cancelled || !stripe || !cardElementRef.current) return
+      stripeRef.current = stripe
+      const elements = stripe.elements()
+      const card = elements.create('card', {
+        style: {
+          base: {
+            fontSize: '16px',
+            color: '#1f2937',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            '::placeholder': { color: '#9ca3af' },
+          },
+          invalid: { color: '#ef4444' },
+        },
+        hidePostalCode: true,
+      })
+      card.mount(cardElementRef.current)
+      card.on('ready', () => setCardReady(true))
+      stripeCardRef.current = card
+    })
+
+    return () => { cancelled = true }
+  }, [paymentMethod])
 
   if (!pendingBooking) return null
 
@@ -77,7 +113,9 @@ export default function Payment() {
     client_lat, client_lng,
   } = pendingBooking
 
-  // Available payment methods based on country
+  // Currency: EUR for PT/default, BRL for BR
+  const currency = clientCountry === 'BR' ? 'brl' : 'eur'
+
   const availableMethods =
     clientCountry === 'PT' ? [
       { id: 'mbway', label: 'MB WAY',  Icon: Smartphone },
@@ -91,11 +129,7 @@ export default function Payment() {
 
   function validatePayment() {
     if (paymentMethod === 'card') {
-      const num = card.number.replace(/\s/g, '')
-      if (num.length < 16)                        return 'Número do cartão incompleto.'
-      if (!/^\d{2}\/\d{2}$/.test(card.expiry))   return 'Validade inválida (MM/AA).'
-      if (card.cvv.length < 3)                    return 'CVV inválido.'
-      if (!card.name.trim())                      return 'Nome no cartão obrigatório.'
+      if (!stripeCardRef.current) return 'Elemento de cartão não inicializado. Recarrega a página.'
     }
     if (paymentMethod === 'mbway') {
       if (!phone.trim()) return 'Número de telemóvel MB WAY obrigatório.'
@@ -106,21 +140,78 @@ export default function Payment() {
     return null
   }
 
-  async function captureClientLocation(bookingId) {
-    if (!navigator.geolocation) return
-    try {
-      const pos = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 })
-      )
-      const lat = pos.coords.latitude
-      const lng = pos.coords.longitude
-      // Only save GPS coordinates for tracking — do NOT overwrite client_address,
-      // which holds the service address the client typed in the booking form.
-      await supabase
-        .from('bookings')
-        .update({ client_latitude: lat, client_longitude: lng })
-        .eq('id', bookingId)
-    } catch {}
+  // Shared booking fields (used by all payment methods)
+  const bookingFields = {
+    client_id:      user.id,
+    provider_id:    provider.id,
+    service_id:     pendingBooking.serviceId || null,
+    scheduled_date: date,
+    scheduled_time: time,
+    duration_hours: duration,
+    booking_type:   bookingType || 'hours',
+    days_count:     bookingType === 'days' ? days : null,
+    total_price:    totalPrice,
+    address:             address || client_address || null,
+    client_address:      client_address || address || null,
+    client_postal_code:  client_postal_code || postalCode || null,
+    client_city:         client_city || null,
+    client_notes:        client_notes || notes || null,
+    client_latitude:     client_lat  ?? addressLat  ?? null,
+    client_longitude:    client_lng  ?? addressLng  ?? null,
+    postal_code:         postalCode || client_postal_code || null,
+    notes:               notes || client_notes || null,
+    status:              'confirmed',
+    payment_method:      paymentMethod,
+  }
+
+  async function savePatientData(bookingId) {
+    if (!patientData?.name) return
+    const { data: savedPatient, error: patErr } = await supabase
+      .from('patients')
+      .insert({
+        professional_id:         provider.id,
+        client_id:               user.id,
+        booking_id:              bookingId,
+        name:                    patientData.name,
+        date_of_birth:           patientData.birth_date        || null,
+        medical_conditions:      patientData.medical_conditions || null,
+        observations:            patientData.observations       || null,
+        allergies:               patientData.allergies          || null,
+        insurance:               patientData.insurance          || null,
+        emergency_contact_name:  patientData.emergency_contact_name  || null,
+        emergency_contact_phone: patientData.emergency_contact_phone || null,
+        mobility_level:          patientData.mobility_level    || null,
+        special_diet:            patientData.special_diet       || null,
+      })
+      .select()
+      .single()
+
+    if (!patErr && savedPatient && patientData.medications?.length) {
+      for (const m of patientData.medications.filter((m) => m.name?.trim())) {
+        const { data: savedMed } = await supabase
+          .from('patient_medications')
+          .insert({
+            patient_id: savedPatient.id,
+            name:       m.name,
+            dosage:     m.dosage    || null,
+            frequency:  m.frequency || null,
+            times:      m.times?.filter(Boolean) || [],
+          })
+          .select()
+          .single()
+
+        if (savedMed && m.times?.length && date) {
+          const alarms = m.times
+            .filter(Boolean)
+            .map((t) => ({
+              medication_id:  savedMed.id,
+              patient_id:     savedPatient.id,
+              scheduled_time: `${date}T${t}:00`,
+            }))
+          if (alarms.length) await supabase.from('medication_alarms').insert(alarms)
+        }
+      }
+    }
   }
 
   async function handlePay() {
@@ -130,97 +221,76 @@ export default function Payment() {
     setLoading(true)
 
     try {
-      // 1. Create booking
-      const { data: booking, error: bookingErr } = await supabase
-        .from('bookings')
-        .insert({
-          client_id:      user.id,
-          provider_id:    provider.id,
-          service_id:     pendingBooking.serviceId || null,
-          scheduled_date: date,
-          scheduled_time: time,
-          duration_hours: duration,
-          booking_type:   bookingType || 'hours',
-          days_count:     bookingType === 'days' ? days : null,
-          total_price:    totalPrice,
-          address:             address || client_address || null,
-          client_address:      client_address || address || null,
-          client_postal_code:  client_postal_code || postalCode || null,
-          client_city:         client_city || null,
-          client_notes:        client_notes || notes || null,
-          // Use geocoded service-address coordinates (client_lat/lng from modal),
-          // falling back to Google Places result from the booking form field.
-          // Never use client's current GPS — that's the wrong location.
-          client_latitude:     client_lat  ?? addressLat  ?? null,
-          client_longitude:    client_lng  ?? addressLng  ?? null,
-          postal_code:         postalCode || client_postal_code || null,
-          notes:               notes || client_notes || null,
-          status:         'confirmed',
-          payment_status: 'paid',
-          payment_method: paymentMethod,
-        })
-        .select()
-        .single()
-
-      if (bookingErr) throw new Error(bookingErr.message)
-
-      // Send confirmation emails (fire-and-forget — never block the booking flow)
-      supabase.functions
-        .invoke('send-booking-emails', { body: { bookingId: booking.id } })
-        .catch((e) => console.warn('[send-booking-emails]', e))
-
-      // captureClientLocation removed — client GPS must never overwrite the service address
-      // coordinates (client_lat/lng) which come from geocoding the typed service address.
-
-      // 3. If patient data, save to patients + patient_medications + medication_alarms
-      if (patientData?.name) {
-        const { data: savedPatient, error: patErr } = await supabase
-          .from('patients')
-          .insert({
-            professional_id:         provider.id,
-            client_id:               user.id,
-            booking_id:              booking.id,
-            name:                    patientData.name,
-            date_of_birth:           patientData.birth_date        || null,
-            medical_conditions:      patientData.medical_conditions || null,
-            observations:            patientData.observations       || null,
-            allergies:               patientData.allergies          || null,
-            insurance:               patientData.insurance          || null,
-            emergency_contact_name:  patientData.emergency_contact_name  || null,
-            emergency_contact_phone: patientData.emergency_contact_phone || null,
-            mobility_level:          patientData.mobility_level    || null,
-            special_diet:            patientData.special_diet       || null,
-          })
+      if (paymentMethod === 'card') {
+        // ── Real Stripe card payment ──────────────────────────────────────────
+        // 1. Create booking in 'pending' state so we have a bookingId for the PaymentIntent
+        const { data: booking, error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({ ...bookingFields, payment_status: 'pending' })
           .select()
           .single()
+        if (bookingErr) throw new Error(bookingErr.message)
 
-        if (!patErr && savedPatient && patientData.medications?.length) {
-          for (const m of patientData.medications.filter((m) => m.name?.trim())) {
-            const { data: savedMed } = await supabase
-              .from('patient_medications')
-              .insert({
-                patient_id: savedPatient.id,
-                name:       m.name,
-                dosage:     m.dosage    || null,
-                frequency:  m.frequency || null,
-                times:      m.times?.filter(Boolean) || [],
-              })
-              .select()
-              .single()
+        // 2. Create PaymentIntent with 15% platform fee + automatic transfer to provider
+        const { data: { session } } = await supabase.auth.getSession()
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+        const resp = await fetch(`${supabaseUrl}/functions/v1/create-payment-intent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ amount: totalPrice, currency, bookingId: booking.id }),
+        })
 
-            // Create one alarm per scheduled time on the booking date
-            if (savedMed && m.times?.length && date) {
-              const alarms = m.times
-                .filter(Boolean)
-                .map((t) => ({
-                  medication_id:  savedMed.id,
-                  patient_id:     savedPatient.id,
-                  scheduled_time: `${date}T${t}:00`,
-                }))
-              if (alarms.length) await supabase.from('medication_alarms').insert(alarms)
-            }
-          }
+        if (!resp.ok) {
+          const errData = await resp.json()
+          // Remove the dangling pending booking so it doesn't pollute the dashboard
+          await supabase.from('bookings').delete().eq('id', booking.id)
+          throw new Error(errData.error ?? 'Erro ao iniciar pagamento')
         }
+
+        const { clientSecret } = await resp.json()
+
+        // 3. Confirm card payment through Stripe (card data never touches our server)
+        const { error: stripeError, paymentIntent } = await stripeRef.current.confirmCardPayment(
+          clientSecret,
+          { payment_method: { card: stripeCardRef.current } },
+        )
+
+        if (stripeError) {
+          await supabase.from('bookings').delete().eq('id', booking.id)
+          throw new Error(stripeError.message)
+        }
+
+        // 4. Mark booking as paid (webhook will also do this, but update immediately for UX)
+        await supabase
+          .from('bookings')
+          .update({
+            payment_status: 'paid',
+            stripe_payment_intent_id: paymentIntent.id,
+          })
+          .eq('id', booking.id)
+
+        await savePatientData(booking.id)
+        supabase.functions
+          .invoke('send-booking-emails', { body: { bookingId: booking.id } })
+          .catch(() => {})
+
+      } else {
+        // ── MB WAY / PIX — simulated payment (manual verification) ────────────
+        const { data: booking, error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({ ...bookingFields, payment_status: 'paid' })
+          .select()
+          .single()
+        if (bookingErr) throw new Error(bookingErr.message)
+
+        await savePatientData(booking.id)
+        supabase.functions
+          .invoke('send-booking-emails', { body: { bookingId: booking.id } })
+          .catch(() => {})
       }
 
       setSuccess(true)
@@ -290,7 +360,7 @@ export default function Payment() {
           </div>
         </div>
 
-        {/* Payment method selector (only when multiple options exist) */}
+        {/* Payment method selector */}
         {availableMethods.length > 1 && (
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
             {availableMethods.map(({ id, label, Icon }) => (
@@ -357,7 +427,7 @@ export default function Payment() {
           </div>
         )}
 
-        {/* Card form */}
+        {/* Card form — Stripe CardElement (PCI-compliant, card data never touches our server) */}
         {paymentMethod === 'card' && (
           <div className="card mb-5">
             <div className="flex items-center gap-2 mb-5">
@@ -365,59 +435,15 @@ export default function Payment() {
               <h2 className="text-lg font-bold text-gray-900">Dados do Cartão</h2>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="input-label">Número do Cartão *</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className="input-field pr-12"
-                    placeholder="1234 5678 9012 3456"
-                    value={card.number}
-                    onChange={(e) => setCard((c) => ({ ...c, number: formatCardNumber(e.target.value) }))}
-                  />
-                  <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
-                </div>
-              </div>
+            {/* Stripe injects the secure card input here */}
+            <div
+              ref={cardElementRef}
+              className="px-4 py-3 border border-gray-200 rounded-xl bg-white focus-within:border-primary-400 transition-colors"
+            />
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="input-label">Validade *</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className="input-field"
-                    placeholder="MM/AA"
-                    value={card.expiry}
-                    onChange={(e) => setCard((c) => ({ ...c, expiry: formatExpiry(e.target.value) }))}
-                  />
-                </div>
-                <div>
-                  <label className="input-label">CVV *</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className="input-field"
-                    placeholder="123"
-                    maxLength={4}
-                    value={card.cvv}
-                    onChange={(e) => setCard((c) => ({ ...c, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="input-label">Nome no Cartão *</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="MARIA A SILVA"
-                  value={card.name}
-                  onChange={(e) => setCard((c) => ({ ...c, name: e.target.value.toUpperCase() }))}
-                />
-              </div>
-            </div>
+            {!cardReady && (
+              <p className="text-xs text-gray-400 mt-2 text-center">A carregar formulário seguro...</p>
+            )}
 
             <PriceSummary bookingType={bookingType} hourlyRate={hourlyRate} dailyRate={dailyRate} duration={duration} days={days} totalPrice={totalPrice} />
           </div>
@@ -429,7 +455,7 @@ export default function Payment() {
 
         <button
           onClick={handlePay}
-          disabled={loading}
+          disabled={loading || (paymentMethod === 'card' && !cardReady)}
           className="btn-primary w-full text-base py-4 disabled:opacity-60"
         >
           {loading ? (
@@ -453,12 +479,12 @@ export default function Payment() {
 
         <div className="flex items-center justify-center gap-2 mt-4 text-xs text-gray-400">
           <Lock className="w-3.5 h-3.5" />
-          Pagamento seguro · SSL encriptado
+          Pagamento seguro · SSL encriptado · Processado pela Stripe
         </div>
 
         {paymentMethod === 'card' && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 text-center">
-            Modo de teste — usa o cartão <strong>4242 4242 4242 4242</strong>, qualquer validade e CVV.
+            Modo de teste — usa o cartão <strong>4242 4242 4242 4242</strong>, qualquer validade futura e CVV.
           </div>
         )}
       </main>

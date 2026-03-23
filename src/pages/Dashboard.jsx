@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import {
   CalendarDays, CheckCircle2, Clock, MapPin,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useAuth } from '../hooks/useAuth'
+import { useStripeConnect } from '../hooks/useStripeConnect'
 import { useBookings } from '../hooks/useBookings'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatCurrency } from '../utils/formatters'
@@ -745,6 +746,8 @@ export default function Dashboard() {
   const { signOut } = useAuth()
   const { bookings, fetchBookings, loading } = useBookings()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { startOnboarding, loading: connectLoading } = useStripeConnect()
   const [expandedId, setExpandedId]           = useState(null)
   const [filter, setFilter]                   = useState('all')
   const [addHoursBooking, setAddHoursBooking] = useState(null)
@@ -761,6 +764,11 @@ export default function Dashboard() {
   const [weekOffset, setWeekOffset]           = useState(0)  // 0=current, -1=last, etc.
   const [profCountry, setProfCountry]         = useState('PT')
   const [unreadCounts, setUnreadCounts]       = useState({})
+  // Stripe Connect state
+  const [stripeConnected,  setStripeConnected]  = useState(false)
+  const [stripeBalance,    setStripeBalance]     = useState(null)   // { available, pending, currency, dashboardUrl }
+  const [stripeBalLoading, setStripeBalLoading]  = useState(false)
+  const [stripeSuccessBanner, setStripeSuccessBanner] = useState(false)
   const [unreadBookingCount, setUnreadBookingCount] = useState(0)
 
   // Derive isProvider early — must be before any useEffect that references it
@@ -774,16 +782,52 @@ export default function Dashboard() {
 
   useEffect(() => { fetchBookings() }, [])
 
-  // Fetch professional's own average rating + country
+  // Fetch professional's own average rating + country + Stripe Connect status
   useEffect(() => {
     if (!isProvider || !user) return
-    supabase.from('profiles').select('average_rating, total_reviews, country, service_type').eq('id', user.id).single()
+    supabase.from('profiles')
+      .select('average_rating, total_reviews, country, service_type, stripe_account_id, stripe_connect_status')
+      .eq('id', user.id).single()
       .then(({ data }) => {
         if (data?.total_reviews > 0) setProfRating(data.average_rating)
         if (data?.country)       setProfCountry(data.country)
         if (data?.service_type)  setProfServiceType(data.service_type)
+        setStripeConnected(!!(data?.stripe_account_id))
       })
   }, [isProvider, user])
+
+  // Fetch Stripe Connect balance when professional has a connected account
+  useEffect(() => {
+    if (!isProvider || !stripeConnected || !user) return
+    setStripeBalLoading(true)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { setStripeBalLoading(false); return }
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      try {
+        const resp = await fetch(`${supabaseUrl}/functions/v1/stripe-connect-balance`, {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+        })
+        if (resp.ok) {
+          const data = await resp.json()
+          setStripeBalance(data)
+        }
+      } catch { /* balance fetch is non-critical */ }
+      finally { setStripeBalLoading(false) }
+    })
+  }, [isProvider, stripeConnected, user])
+
+  // Detect ?stripe=success return from Stripe Connect onboarding
+  useEffect(() => {
+    if (!location.search.includes('stripe=success')) return
+    setStripeSuccessBanner(true)
+    setStripeConnected(true)
+    // Clean URL without reload
+    window.history.replaceState({}, '', '/dashboard')
+    setTimeout(() => setStripeSuccessBanner(false), 6000)
+  }, [location.search])
 
   // Fetch rating breakdown for the current user (both providers and clients receive ratings)
   useEffect(() => {
@@ -1356,6 +1400,90 @@ export default function Dashboard() {
             </div>
           )
         })()}
+
+        {/* ── Stripe Connect banner: returned from onboarding ── */}
+        {stripeSuccessBanner && (
+          <div className="mb-5 flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-emerald-800 text-sm">Conta bancária conectada com sucesso!</p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                A partir de agora recebes 85% de cada pagamento automaticamente via Stripe.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Stripe Connect earnings panel (providers only) ─────────────────── */}
+        {isProvider && (
+          <div className="card mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">💳 Conta Stripe</h2>
+              {!stripeConnected && (
+                <button
+                  onClick={startOnboarding}
+                  disabled={connectLoading}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-primary-600
+                             hover:bg-primary-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                >
+                  {connectLoading
+                    ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    : null}
+                  💳 Conectar conta bancária
+                </button>
+              )}
+            </div>
+
+            {!stripeConnected ? (
+              <p className="text-sm text-gray-500 text-center py-4">
+                Conecta a tua conta bancária para receber <strong>85%</strong> de cada pagamento
+                automaticamente. A plataforma retém 15% como comissão.
+              </p>
+            ) : stripeBalLoading ? (
+              <div className="space-y-2">
+                <div className="h-8 bg-gray-100 rounded-lg animate-pulse" />
+                <div className="h-6 bg-gray-100 rounded-lg animate-pulse w-2/3" />
+              </div>
+            ) : stripeBalance ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-emerald-50 rounded-xl p-4 text-center">
+                    <p className="text-xs font-medium text-emerald-600 uppercase tracking-wide mb-1">Disponível</p>
+                    <p className="text-2xl font-extrabold text-emerald-700">
+                      {stripeBalance.currency === 'brl' ? 'R$' : '€'} {stripeBalance.available.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="bg-amber-50 rounded-xl p-4 text-center">
+                    <p className="text-xs font-medium text-amber-600 uppercase tracking-wide mb-1">Pendente</p>
+                    <p className="text-2xl font-extrabold text-amber-700">
+                      {stripeBalance.currency === 'brl' ? 'R$' : '€'} {stripeBalance.pending.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+                {stripeBalance.dashboardUrl && (
+                  <a
+                    href={stripeBalance.dashboardUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl
+                               border border-gray-200 text-sm font-semibold text-gray-700
+                               hover:bg-gray-50 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    💸 Transferir para conta bancária
+                  </a>
+                )}
+                <p className="text-xs text-gray-400 text-center">
+                  Pagamentos disponíveis em 2–5 dias úteis. Gerir transferências no painel Stripe.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                ✅ Conta bancária conectada. Saldo a carregar...
+              </p>
+            )}
+          </div>
+        )}
 
         {/* PROTECTED — DO NOT REMOVE */}
         {/* Feature 1 — Paciente tab selector for clients with confirmed care bookings */}
