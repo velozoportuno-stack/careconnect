@@ -435,15 +435,16 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
     return () => navigator.geolocation.clearWatch(watchId)
   }, [isProvider, booking.status, booking.client_latitude, booking.client_longitude])
 
-  // Elapsed timer (updates every 30s while in_progress)
+  // Elapsed timer — uses started_at when available, falls back to updated_at
+  // Ticks every 10s so the countdown stays responsive
   useEffect(() => {
     if (booking.status !== 'in_progress') return
-    const startTime = new Date(booking.updated_at).getTime()
+    const startTime = new Date(booking.started_at || booking.updated_at).getTime()
     const tick = () => setElapsedMs(Date.now() - startTime)
     tick()
-    const id = setInterval(tick, 30000)
+    const id = setInterval(tick, 10000)
     return () => clearInterval(id)
-  }, [booking.status, booking.updated_at])
+  }, [booking.status, booking.started_at, booking.updated_at])
 
   const distToClient = providerPos && booking.client_latitude && booking.client_longitude
     ? haversineMeters(
@@ -459,7 +460,7 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
     const now = new Date().toISOString()
     const { error } = await supabase
       .from('bookings')
-      .update({ status: 'in_progress', updated_at: now })
+      .update({ status: 'in_progress', started_at: now, updated_at: now })
       .eq('id', booking.id)
     setStartingService(false)
     if (!error) onRefresh?.()
@@ -468,6 +469,14 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
   const elapsedH = Math.floor(elapsedMs / 3600000)
   const elapsedM = Math.floor((elapsedMs % 3600000) / 60000)
   const timerLabel = elapsedH > 0 ? `${elapsedH}h ${elapsedM}m` : `${elapsedM}m`
+
+  // 30-minute lock before "Concluir Serviço" is available
+  const FINISH_LOCK_MS  = 30 * 60 * 1000
+  // No lock when: not in_progress, or no started_at recorded, or 30+ min elapsed
+  const canFinish       = booking.status !== 'in_progress' ||
+                          !booking.started_at ||
+                          elapsedMs >= FINISH_LOCK_MS
+  const minutesToFinish = Math.max(1, Math.ceil((FINISH_LOCK_MS - elapsedMs) / 60000))
 
   return (
     <div className="border border-gray-100 rounded-2xl overflow-hidden bg-white">
@@ -566,15 +575,22 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
             </div>
           </div>
 
-          {/* GPS indicator + elapsed timer (Feature 2) */}
+          {/* GPS indicator + elapsed timer + countdown (Feature 2) */}
           {booking.status === 'in_progress' && (
-            <div className="flex items-center gap-2 mt-2 text-xs text-primary-600 font-medium flex-wrap">
-              <span className="flex items-center gap-1">
-                <Navigation className="w-3 h-3 animate-pulse" />
-                {isProvider ? 'Partilha de localização activa' : 'A seguir localização em tempo real'}
-              </span>
-              {elapsedMs > 0 && (
-                <span className="text-emerald-600 font-semibold">⏱ Serviço em curso: {timerLabel}</span>
+            <div className="flex flex-col gap-1 mt-2">
+              <div className="flex items-center gap-2 text-xs text-primary-600 font-medium flex-wrap">
+                <span className="flex items-center gap-1">
+                  <Navigation className="w-3 h-3 animate-pulse" />
+                  {isProvider ? 'Partilha de localização activa' : 'A seguir localização em tempo real'}
+                </span>
+                {elapsedMs > 0 && (
+                  <span className="text-emerald-600 font-semibold">⏱ Serviço em curso: {timerLabel}</span>
+                )}
+              </div>
+              {isProvider && !canFinish && (
+                <span className="text-xs text-amber-600 font-medium">
+                  ⏳ Conclusão disponível em: {minutesToFinish}m
+                </span>
               )}
             </div>
           )}
@@ -627,16 +643,22 @@ function BookingRow({ booking, userRole, userId, isExpanded, onToggle, onAddHour
                   </button>
                 )
               )}
-              {/* Finish service — provider only, confirmed or in_progress */}
+              {/* Finish service — provider only, confirmed or in_progress (30-min lock for in_progress) */}
               {isProvider && isActive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onFinishService(booking) }}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-white
-                             bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  ✅ Concluir Serviço
-                </button>
+                canFinish ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onFinishService(booking) }}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-white
+                               bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    ✅ Concluir Serviço
+                  </button>
+                ) : (
+                  <span className="text-xs text-amber-600 font-medium">
+                    ⏳ Poderás concluir em {minutesToFinish}m
+                  </span>
+                )
               )}
               {/* Chat — active bookings (confirmed / in_progress) */}
               {isActive && (
